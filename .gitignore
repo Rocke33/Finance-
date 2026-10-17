@@ -1,11 +1,27 @@
-# Backend
+# Backend & Virtual Environments
 backend/venv/
+venv/
+.venv/
 backend/.env
+backend/.env.*
+.env
+.env.*
+my-app/.env
+my-app/.env.*
+
+# Python Cache & Databases
 **/__pycache__/
 *.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+backend/temp_uploads/
+temp_uploads/
 
 # Frontend
+my-app/node_modules/
+my-app/dist/
 frontend/node_modules/
 frontend/.next/
-frontend/dist/
-frontend/.env*.local
+frontend/dist/
