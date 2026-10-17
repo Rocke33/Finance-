@@ -4,8 +4,10 @@ import {
   AIInsight,
   ReceiptExtraction,
   NewTransactionPayload,
+  BudgetCategory,
 } from '../types/finance';
-const API_BASE_URL = 'https://finance-8vcg.onrender.com';
+
+const API_BASE_URL = 'http://127.0.0.1:8000';
 
 export interface UserProfile {
   id: string;
@@ -14,44 +16,28 @@ export interface UserProfile {
   income: number;
 }
 
-export async function loginApi(email: string, password: string): Promise<{ access_token: string; user: UserProfile }> {
-  const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  });
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.detail || 'Login failed. Please check credentials.');
-  }
-  return await res.json();
-}
+// অথেনটিকেশন হেডার পাওয়ার হেল্পার
+const getAuthHeaders = (): HeadersInit => {
+  const token = localStorage.getItem('finai_token');
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+};
 
-export async function registerApi(name: string, email: string, password: string, income: number): Promise<{ access_token: string; user: UserProfile }> {
-  const res = await fetch(`${API_BASE_URL}/api/auth/register`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, email, password, income }),
-  });
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.detail || 'Registration failed.');
-  }
-  return await res.json();
-}
-
-// মক ডেটা (ফলব্যাক হিসেবে)
+// মক ড্যাশবোর্ড সামারি
 const MOCK_SUMMARY: BudgetSummary = {
   monthly_income: 60000,
-  total_budget: 45000,
-  total_spent: 14500,
-  remaining: 30500,
+  total_budget: 53000,
+  total_spent: 16452.11,
+  remaining: 36547.89,
   categories: [
-    { name: 'Food', allocated: 10000, spent: 8500, status: 'warning' },
+    { name: 'Food', allocated: 10000, spent: 3402.11, status: 'normal' },
     { name: 'Groceries', allocated: 15000, spent: 3200, status: 'normal' },
-    { name: 'Transport', allocated: 5000, spent: 2100, status: 'normal' },
-    { name: 'Entertainment', allocated: 5000, spent: 5100, status: 'danger' },
-    { name: 'Utilities', allocated: 8000, spent: 4000, status: 'normal' },
+    { name: 'Transport', allocated: 5000, spent: 350, status: 'normal' },
+    { name: 'Entertainment', allocated: 5000, spent: 1200, status: 'normal' },
+    { name: 'Shopping', allocated: 10000, spent: 4500, status: 'normal' },
+    { name: 'Utilities', allocated: 8000, spent: 3800, status: 'normal' },
   ],
 };
 
@@ -68,18 +54,55 @@ const MOCK_INSIGHTS: AIInsight[] = [
   {
     id: '1',
     type: 'alert',
-    message: 'Entertainment budget exceeded by ৳100 (102% spent).',
-    action: 'Freeze discretionary movie and outing spending for the rest of the month.',
+    message: 'Food expenses are pacing moderately this month.',
+    action: 'Plan weekend dining out intentionally to maintain comfortable margins.',
   },
   {
     id: '2',
-    type: 'warning',
-    message: 'Food expenses have reached 85% of monthly allocation.',
-    action: 'Cook at home during weekdays to keep restaurant dining within budget.',
+    type: 'suggestion',
+    message: 'Your overall spending is within safe budget limits.',
+    action: 'Consider transferring ৳10,000 to your savings account.',
   },
 ];
 
-// ১. হেলথ চেক (main.py এর সাথে ম্যাচ করা)
+// --- AUTH APIS ---
+
+export async function loginApi(
+  email: string,
+  password: string
+): Promise<{ access_token: string; user: UserProfile }> {
+  const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || 'Login failed. Please verify credentials.');
+  }
+  return await res.json();
+}
+
+export async function registerApi(
+  name: string,
+  email: string,
+  password: string,
+  income: number
+): Promise<{ access_token: string; user: UserProfile }> {
+  const res = await fetch(`${API_BASE_URL}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, email, password, income }),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || 'Registration failed.');
+  }
+  return await res.json();
+}
+
+// --- CORE FINANCE APIS ---
+
 export async function checkBackendHealth(): Promise<boolean> {
   try {
     const res = await fetch(`${API_BASE_URL}/`, { method: 'GET' });
@@ -89,35 +112,36 @@ export async function checkBackendHealth(): Promise<boolean> {
   }
 }
 
-// ২. ড্যাশবোর্ড সামারি
 export async function getDashboardSummary(useDemo = false): Promise<{ data: BudgetSummary }> {
   if (useDemo) return { data: MOCK_SUMMARY };
   try {
-    const res = await fetch(`${API_BASE_URL}/api/dashboard`);
+    const res = await fetch(`${API_BASE_URL}/api/dashboard`, {
+      headers: getAuthHeaders(),
+    });
     if (!res.ok) throw new Error('Failed to fetch dashboard summary');
     const data = await res.json();
     return { data };
-  } catch (err) {
+  } catch {
     return { data: MOCK_SUMMARY };
   }
 }
 
-// ৩. ট্রানজ্যাকশন লিস্ট
 export async function getTransactions(category?: string, useDemo = false): Promise<{ data: Transaction[] }> {
   if (useDemo) return { data: mockTransactions };
   try {
     const url = new URL(`${API_BASE_URL}/api/transactions`);
     if (category) url.searchParams.append('category', category);
-    const res = await fetch(url.toString());
+    const res = await fetch(url.toString(), {
+      headers: getAuthHeaders(),
+    });
     if (!res.ok) throw new Error('Failed to fetch transactions');
     const data = await res.json();
     return { data };
-  } catch (err) {
+  } catch {
     return { data: mockTransactions };
   }
 }
 
-// ৪. নতুন ট্রানজ্যাকশন তৈরি
 export async function createTransaction(payload: NewTransactionPayload, useDemo = false): Promise<Transaction> {
   if (useDemo) {
     const created: Transaction = {
@@ -134,7 +158,7 @@ export async function createTransaction(payload: NewTransactionPayload, useDemo 
 
   const res = await fetch(`${API_BASE_URL}/api/transactions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(payload),
   });
 
@@ -144,50 +168,68 @@ export async function createTransaction(payload: NewTransactionPayload, useDemo 
   return await res.json();
 }
 
-export async function updateMonthlyIncome(income: number, useDemo = false): Promise<void> {
-  if (useDemo) return;
+export async function updateUserIncome(income: number, useDemo = false): Promise<{ monthly_income: number }> {
+  if (useDemo) {
+    MOCK_SUMMARY.monthly_income = income;
+    MOCK_SUMMARY.remaining = income - MOCK_SUMMARY.total_spent;
+    return { monthly_income: income };
+  }
 
   const res = await fetch(`${API_BASE_URL}/api/user/income`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ income }),
   });
 
-  if (!res.ok) throw new Error('Failed to update monthly income');
+  if (!res.ok) {
+    throw new Error('Failed to update income');
+  }
+  return await res.json();
 }
 
-export async function updateCategoryBudget(category: string, monthlyLimit: number, useDemo = false): Promise<void> {
-  if (useDemo) return;
+export async function setCategoryBudget(category: string, monthly_limit: number, useDemo = false): Promise<{ category: string; allocated: number }> {
+  if (useDemo) {
+    const cat = MOCK_SUMMARY.categories.find((c) => c.name.toLowerCase() === category.toLowerCase());
+    if (cat) cat.allocated = monthly_limit;
+    return { category, allocated: monthly_limit };
+  }
 
   const res = await fetch(`${API_BASE_URL}/api/budgets`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ category, monthly_limit: monthlyLimit }),
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ category, monthly_limit }),
   });
 
-  if (!res.ok) throw new Error('Failed to update category budget');
+  if (!res.ok) {
+    throw new Error('Failed to set budget');
+  }
+  return await res.json();
 }
 
-// ৫. এআই ইনসাইটস
 export async function getAIInsights(useDemo = false): Promise<{ data: AIInsight[] }> {
   if (useDemo) return { data: MOCK_INSIGHTS };
   try {
-    const res = await fetch(`${API_BASE_URL}/api/insights`);
+    const res = await fetch(`${API_BASE_URL}/api/insights`, {
+      headers: getAuthHeaders(),
+    });
     if (!res.ok) throw new Error('Failed to fetch AI insights');
     const data = await res.json();
     return { data: data.insights || [] };
-  } catch (err) {
+  } catch {
     return { data: MOCK_INSIGHTS };
   }
 }
 
-// ৬. রসিদ আপলোড ও স্ক্যান
 export async function uploadReceiptImage(file: File): Promise<ReceiptExtraction> {
   const formData = new FormData();
   formData.append('file', file);
 
+  const token = localStorage.getItem('finai_token');
+  const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
+
   const res = await fetch(`${API_BASE_URL}/api/upload-receipt`, {
     method: 'POST',
+    headers,
     body: formData,
   });
 
@@ -197,4 +239,24 @@ export async function uploadReceiptImage(file: File): Promise<ReceiptExtraction>
   }
 
   return await res.json();
+}
+
+export async function sendChatMessage(message: string, useDemo = false): Promise<string> {
+  if (useDemo) {
+    return 'Based on your current budget, keeping daily discretionary expenses under ৳500 will help preserve your savings goals this month!';
+  }
+
+  const res = await fetch(`${API_BASE_URL}/api/chat`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ message }),
+  });
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || 'Failed to communicate with FinAI Chat.');
+  }
+
+  const data = await res.json();
+  return data.reply;
 }

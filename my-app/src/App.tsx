@@ -14,8 +14,8 @@ import {
   getAIInsights,
   createTransaction,
   checkBackendHealth,
-  updateMonthlyIncome,
-  updateCategoryBudget,
+  updateUserIncome,
+  setCategoryBudget,
   UserProfile,
 } from './services/api';
 
@@ -30,25 +30,26 @@ import { AIInsightsCard } from './components/AIInsightsCard';
 import { ReceiptUploadModal } from './components/ReceiptUploadModal';
 import { FinanceActionModal, ActionModalType } from './components/FinanceActionModal';
 import { AuthScreen } from './components/AuthScreen';
+import { ChatWidget } from './components/ChatWidget';
 import { LoadingSkeleton } from './components/LoadingSkeleton';
-
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
     try {
       const saved = localStorage.getItem('finai_user');
-      return saved ? JSON.parse(saved) as UserProfile : null;
+      return saved ? (JSON.parse(saved) as UserProfile) : null;
     } catch {
       localStorage.removeItem('finai_user');
       return null;
     }
   });
+
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [isSidebarOpenMobile, setIsSidebarOpenMobile] = useState<boolean>(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState<boolean>(false);
   const [activeModal, setActiveModal] = useState<ActionModalType>(null);
   
-  // ইউজার ইচ্ছাকৃতভাবে মক মোড ব্যবহার করতে চাইছে কি না
+  // ডেমো/লাইভ মোড নিয়ন্ত্রণ
   const [isDemoMode, setIsDemoMode] = useState<boolean>(false);
 
   const [summary, setSummary] = useState<BudgetSummary | null>(null);
@@ -71,7 +72,7 @@ export default function App() {
     setCurrentUser(null);
   };
 
-  // Load all data
+  // সব ডাটা ফেচ করার হ্যান্ডলার
   const loadData = useCallback(async (isRefresh = false, forceDemoMode?: boolean) => {
     if (isRefresh) setIsRefreshing(true);
     else setIsLoading(true);
@@ -83,12 +84,11 @@ export default function App() {
       let isOnline = false;
       try {
         isOnline = await checkBackendHealth();
-      } catch (e) {
+      } catch {
         isOnline = false;
       }
       setBackendOnline(isOnline);
 
-      // ইউজার ডেমো চাইলে ডেমো, অথবা ব্যাকএন্ড অফলাইন হলে অটো-ফলব্যাক
       const useDemo = activeDemoSetting || !isOnline;
 
       const [summaryRes, txsRes, insightsRes] = await Promise.all([
@@ -110,25 +110,28 @@ export default function App() {
   }, [isDemoMode]);
 
   useEffect(() => {
-    if (currentUser) loadData();
+    if (currentUser) {
+      loadData();
+    }
   }, [currentUser, loadData]);
 
-  // টগল মোড হ্যান্ডলার
   const handleToggleDemoMode = (demo: boolean) => {
     setIsDemoMode(demo);
     loadData(true, demo);
   };
 
+  // ১. ইনকাম সেভ করার হ্যান্ডলার
   const handleSaveIncome = async (income: number) => {
-    setSummary((prev) => prev ? { ...prev, monthly_income: income } : prev);
+    setSummary((prev) => (prev ? { ...prev, monthly_income: income } : prev));
     try {
-      await updateMonthlyIncome(income, isDemoMode || !backendOnline);
+      await updateUserIncome(income, isDemoMode || !backendOnline);
       if (backendOnline && !isDemoMode) await loadData(true);
     } catch (err: any) {
       console.warn('Income persistence error:', err);
     }
   };
 
+  // ২. বাজেট সেভ করার হ্যান্ডলার
   const handleSaveBudget = async (category: string, limit: number) => {
     setSummary((prev) => {
       if (!prev) return prev;
@@ -141,6 +144,7 @@ export default function App() {
             return { ...cat, allocated: limit, status };
           })
         : [...prev.categories, { name: category, allocated: limit, spent: 0, status: 'normal' }];
+      
       const totalBudget = updatedCategories.reduce((total, cat) => total + cat.allocated, 0);
 
       return {
@@ -152,14 +156,14 @@ export default function App() {
     });
 
     try {
-      await updateCategoryBudget(category, limit, isDemoMode || !backendOnline);
+      await setCategoryBudget(category, limit, isDemoMode || !backendOnline);
       if (backendOnline && !isDemoMode) await loadData(true);
     } catch (err: any) {
       console.warn('Budget persistence error:', err);
     }
   };
 
-  // রসিদ কনফার্ম করার পর হ্যান্ডলার
+  // ৩. এক্সপেন্স/রসিদ সেভ করার হ্যান্ডলার
   const handleTransactionSaved = async (newTx: NewTransactionPayload) => {
     const expenseAmount = Number(newTx.amount);
 
@@ -208,10 +212,8 @@ export default function App() {
       };
     });
 
-    // ৩. ব্যাকএন্ডের ডাটাবেসে পারসিস্ট করা
     try {
       await createTransaction(newTx, isDemoMode || !backendOnline);
-      // ব্যাকএন্ড লাইভ থাকলে ডাটাবেজ থেকে ফ্রেশ সামারি রি-লোড করা
       if (backendOnline && !isDemoMode) {
         await loadData(true);
       }
@@ -222,13 +224,14 @@ export default function App() {
 
   const isActuallyLive = backendOnline && !isDemoMode;
 
+  // ইউজার না থাকলে লগইন স্ক্রিন প্রদর্শিত হবে
   if (!currentUser) {
     return (
       <AuthScreen
         onAuthSuccess={handleAuthSuccess}
         onContinueAsGuest={() =>
           setCurrentUser({
-            id: 'user-demo',
+            id: '00000000-0000-0000-0000-000000000001',
             name: 'Demo User',
             email: 'demo@finance.app',
             income: 60000,
@@ -420,6 +423,9 @@ export default function App() {
         onSaveIncome={handleSaveIncome}
         onSaveBudget={handleSaveBudget}
       />
+
+      {/* Floating FinAI Chatbot */}
+      <ChatWidget isDemoMode={!isActuallyLive} />
     </div>
   );
 }

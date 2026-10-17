@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 
 import schemas
 import database
-from ai_service import process_receipt_image
+from ai_service import process_receipt_image, answer_finance_query
 
 load_dotenv()
 
@@ -317,3 +317,31 @@ async def upload_receipt(file: UploadFile = File(...)):
                 os.remove(file_path)
             except Exception:
                 pass
+
+# --- AI CHAT ROUTE ---
+
+@app.post("/api/chat", response_model=schemas.ChatMessageResponse, tags=["AI"])
+def chat_with_finai(
+    req: schemas.ChatMessageRequest,
+    user_id: str = database.DEFAULT_DEMO_USER_ID,
+    db: Session = Depends(database.get_db)
+):
+    try:
+        summary_data = database.calculate_dashboard_summary_repo(db, user_id=user_id)
+        user_context = {
+            "monthly_income": summary_data.monthly_income,
+            "total_budget": summary_data.total_budget,
+            "total_spent": summary_data.total_spent,
+            "remaining": summary_data.remaining,
+            "categories": [
+                {"name": c.name, "allocated": c.allocated, "spent": c.spent}
+                for c in summary_data.categories
+            ]
+        }
+        reply_text = answer_finance_query(question=req.message, user_context=user_context)
+        return schemas.ChatMessageResponse(reply=reply_text)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"AI chat error: {str(e)}"
+        )

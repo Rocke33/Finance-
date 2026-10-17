@@ -154,3 +154,61 @@ def process_receipt_image(image_path: str) -> schemas.ReceiptExtraction:
         is_fallback=False,
         notes=None
     )
+
+def answer_finance_query(
+    question: str,
+    user_context: Optional[dict] = None
+) -> str:
+    """
+    ইউজারের বর্তমান ইনকাম, বাজেট ও খরচের হিসাব মাথায় রেখে ফাইন্যান্সিয়াল প্রশ্নের উত্তর দেয়।
+    """
+    client = get_genai_client()
+    if client is None:
+        return "I am currently running in offline fallback mode. Please configure GEMINI_API_KEY in backend/.env to enable live AI chat."
+
+    context_str = ""
+    if user_context:
+        income = user_context.get("monthly_income", 0.0)
+        spent = user_context.get("total_spent", 0.0)
+        budget = user_context.get("total_budget", 0.0)
+        remaining = user_context.get("remaining", 0.0)
+        categories = user_context.get("categories", [])
+
+        cat_breakdown = ", ".join(
+            [f"{c.get('name')}: Spent ৳{c.get('spent')} of ৳{c.get('allocated')}" for c in categories]
+        )
+        context_str = f"""
+        User Current Financial Overview:
+        - Monthly Income: BDT {income}
+        - Total Budget Allocated: BDT {budget}
+        - Total Spent This Month: BDT {spent}
+        - Remaining Funds: BDT {remaining}
+        - Category Spending: {cat_breakdown}
+        """
+
+    system_instruction = f"""
+    You are FinAI, an expert, supportive, and practical personal finance assistant.
+    Your goal is to provide actionable financial advice, budgeting tips, smart expense reduction ideas, and answers to personal finance questions.
+    Keep your explanations concise, realistic, and culturally tailored (currency: BDT / ৳).
+    Use bullet points and bold highlights for readability.
+
+    {context_str}
+    """
+
+    prompt = f"{system_instruction}\nUser Question: {question}\nFinAI:"
+
+    last_error = None
+    for model_name in SUPPORTED_MODELS:
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt
+            )
+            if response and response.text:
+                return response.text.strip()
+        except Exception as e:
+            last_error = e
+            logger.warning(f"Chat failed with {model_name}: {e}")
+            continue
+
+    return f"Unable to generate financial advice at the moment. Error: {last_error}"

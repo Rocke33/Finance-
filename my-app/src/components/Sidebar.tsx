@@ -26,7 +26,7 @@ interface SidebarProps {
   setIsDemoMode: (demo: boolean) => void;
   onOpenUpload: () => void;
   onOpenActionModal: (type: ActionModalType) => void;
-  currentUser: UserProfile;
+  currentUser: UserProfile | null;
   onLogout: () => void;
 }
 
@@ -46,6 +46,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
     onOpenActionModal(type);
     setIsOpenMobile(false);
   };
+
+  const displayName = currentUser?.name || 'Demo User';
+  const displayEmail = currentUser?.email || 'demo@finance.app';
+  const initials = displayName
+    .trim()
+    .split(' ')
+    .filter(Boolean)
+    .map((word) => word[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase() || 'DU';
 
   return (
     <>
@@ -253,11 +264,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           <div className="mt-3 flex items-center gap-2.5 px-1">
             <div className="h-8 w-8 shrink-0 rounded-full bg-slate-200 flex items-center justify-center font-bold text-xs text-slate-600">
-              {currentUser.name.trim().slice(0, 2).toUpperCase()}
+              {initials}
             </div>
             <div className="min-w-0 flex-1 overflow-hidden">
-              <p className="text-xs font-semibold text-slate-900 truncate">{currentUser.name}</p>
-              <p className="text-[11px] text-slate-500 truncate">{currentUser.email}</p>
+              <p className="text-xs font-semibold text-slate-900 truncate">{displayName}</p>
+              <p className="text-[11px] text-slate-500 truncate">{displayEmail}</p>
             </div>
             <button
               type="button"

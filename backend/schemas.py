@@ -64,7 +64,6 @@ class ReceiptExtraction(BaseModel):
     is_fallback: bool = False
     notes: Optional[str] = None
 
-
 # --- AUTH SCHEMAS ---
 
 class UserRegister(BaseModel):
@@ -87,3 +86,11 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+# --- CHAT SCHEMAS ---
+
+class ChatMessageRequest(BaseModel):
+    message: str = Field(..., min_length=1)
+
+class ChatMessageResponse(BaseModel):
+    reply: str
