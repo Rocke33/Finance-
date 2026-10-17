@@ -20,7 +20,7 @@ load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./finance.db")
 
 # SQLite needs check_same_thread=False for FastAPI concurrency.
-# PostgreSQL/Supabase does not receive SQLite-specific connection arguments.
+# PostgreSQL/Supabase should receive no SQLite-specific connection arguments.
 if DATABASE_URL.startswith("sqlite"):
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 else:
