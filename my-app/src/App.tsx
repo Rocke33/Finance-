@@ -23,6 +23,7 @@ import { Sidebar } from './components/Sidebar';
 import { SummaryCards } from './components/SummaryCards';
 import { SpendingChart } from './components/SpendingChart';
 import { WeeklySpendingChart } from './components/WeeklySpendingChart';
+import { MonthlySpendingPieChart } from './components/MonthlySpendingPieChart';
 import { BudgetCategoryList } from './components/BudgetCategoryList';
 import { TransactionTable } from './components/TransactionTable';
 import { AIInsightsCard } from './components/AIInsightsCard';
@@ -363,6 +364,7 @@ export default function App() {
                     </div>
                   </div>
                   <WeeklySpendingChart transactions={transactions} />
+                  <MonthlySpendingPieChart categories={summary.categories} />
 
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-2">
