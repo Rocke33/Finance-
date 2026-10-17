@@ -16,13 +16,15 @@ import schemas
 
 load_dotenv()
 
-# Database URL configuration: defaults to local SQLite for instant zero-config execution
+# Database URL configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./finance.db")
 
-# SQLite needs check_same_thread=False for FastAPI concurrency
-connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-
-engine = create_engine(DATABASE_URL, connect_args=connect_args)
+# SQLite needs check_same_thread=False for FastAPI concurrency.
+# PostgreSQL/Supabase does not receive SQLite-specific connection arguments.
+if DATABASE_URL.startswith("sqlite"):
+    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+else:
+    engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
