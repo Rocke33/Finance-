@@ -22,6 +22,7 @@ import {
 import { Sidebar } from './components/Sidebar';
 import { SummaryCards } from './components/SummaryCards';
 import { SpendingChart } from './components/SpendingChart';
+import { WeeklySpendingChart } from './components/WeeklySpendingChart';
 import { BudgetCategoryList } from './components/BudgetCategoryList';
 import { TransactionTable } from './components/TransactionTable';
 import { AIInsightsCard } from './components/AIInsightsCard';
@@ -29,6 +30,7 @@ import { ReceiptUploadModal } from './components/ReceiptUploadModal';
 import { FinanceActionModal, ActionModalType } from './components/FinanceActionModal';
 import { AuthScreen } from './components/AuthScreen';
 import { LoadingSkeleton } from './components/LoadingSkeleton';
+
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
@@ -360,6 +362,7 @@ export default function App() {
                       <BudgetCategoryList categories={summary.categories} />
                     </div>
                   </div>
+                  <WeeklySpendingChart transactions={transactions} />
 
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-2">
