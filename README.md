@@ -17,7 +17,7 @@ An intelligent, full-stack personal finance web application built for students, 
 - **Project Title:** AIFinance (AI-Powered Personal Finance Assistant)
 - **Team Name:** JU_CSE_33
 - **Institution:** Department of Computer Science & Engineering (CSE), Jahangirnagar University, Bangladesh
-- **Event:** 2026 Shenzhen International FinTech Competition – International Track.
+- **Event:** 2026 Shenzhen International FinTech Competition – International Track
 
 ### Development Team Members:
 
@@ -266,4 +266,4 @@ Complete technical documentation compiled specifically for hackathon evaluation:
 
 ## 8. License & Acknowledgments
 
-Developed by **Team Never Existed** from **Jahangirnagar University, CSE, Bangladesh** for the University Hackathon 2026. Built with FastAPI, React 19, Supabase, Tailwind CSS, and Google GenAI.
+Developed by **Team JU_CSE_33** from **Jahangirnagar University, CSE, Bangladesh** for the 2026 Shenzhen Internation
