@@ -41,10 +41,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
         {/* Brand Header */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-gradient-to-tr from-[#0F382C] to-[#1A5C4A] text-white shadow-md mb-3">
-            <span className="text-3xl" role="img" aria-label="BeHisabi Bee">🐝</span>
+            <span className="text-3xl" role="img" aria-label="AIFinance">🐝</span>
           </div>
           <h1 className="text-2xl font-black tracking-tight text-slate-900">
-             Be<span className="text-[#E5484D]">Hisabi</span>
+             AI<span className="text-[#E5484D]">Finance</span>
           </h1>
           <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mt-0.5">
             Expense & Budget
