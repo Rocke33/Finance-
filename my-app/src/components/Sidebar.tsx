@@ -8,7 +8,6 @@ import {
   Settings,
   Receipt,
   PlusCircle,
-  Wallet,
   LogOut,
   X,
   Sparkles,
@@ -23,6 +22,7 @@ interface SidebarProps {
   setIsOpenMobile: (open: boolean) => void;
   onOpenUpload: () => void;
   onOpenActionModal: (type: ActionModalType) => void;
+  onOpenAdvisor: () => void;
   currentUser: UserProfile | null;
   onLogout: () => void;
 }
@@ -34,6 +34,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setIsOpenMobile,
   onOpenUpload,
   onOpenActionModal,
+  onOpenAdvisor,
   currentUser,
   onLogout,
 }) => {
@@ -103,7 +104,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
 
-        {/* Quick Actions (Prominent) */}
+        {/* Quick Actions */}
         <div className="p-4 pb-2 space-y-2 shrink-0">
           <button
             type="button"
@@ -157,11 +158,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </button>
               );
             })}
+
+            {/* AI Assistant Button in Sidebar below Category Budgets */}
+            <button
+              type="button"
+              id="nav-ai-assistant-desktop"
+              onClick={() => {
+                onOpenAdvisor();
+                setIsOpenMobile(false);
+              }}
+              className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-700 hover:bg-gradient-to-r hover:from-rose-50 hover:to-amber-50 hover:text-[#E5484D] transition-all cursor-pointer group mt-1 border border-dashed border-rose-200/80 bg-rose-50/30"
+            >
+              <div className="h-5 w-5 rounded-lg bg-gradient-to-tr from-[#E5484D] to-[#FF6B6B] text-white flex items-center justify-center shrink-0 shadow-2xs group-hover:scale-105 transition-transform">
+                <Sparkles className="h-3 w-3" />
+              </div>
+              <span className="flex-1 text-left">AI Assistant</span>
+              <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-700">
+                AI
+              </span>
+            </button>
           </div>
 
-          {/* Bottom Area: Reserved empty space above Settings */}
+          {/* Bottom Settings Link */}
           <div className="pt-4 border-t border-slate-100 mt-auto">
-            <div id="ai-assistant-default-anchor-desktop" className="h-14 mb-2 pointer-events-none rounded-xl flex items-center justify-center" />
             <button
               id="nav-settings-desktop"
               type="button"
@@ -181,7 +200,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </nav>
 
-        {/* User Footer Profile */}
+        {/* User Profile Footer */}
         <div className="p-4 border-t border-slate-100 bg-slate-50/50 shrink-0">
           <div className="flex items-center gap-3">
             <div className="h-9 w-9 shrink-0 rounded-xl bg-gradient-to-tr from-[#0F382C] to-[#1A5C4A] text-white flex items-center justify-center font-bold text-xs shadow-2xs">

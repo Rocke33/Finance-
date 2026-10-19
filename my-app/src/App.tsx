@@ -66,7 +66,6 @@ export default function App() {
     }
   });
 
-  // History & Route State
   const [currentTab, setCurrentTab] = useState<string>(() => {
     try {
       const paramTab = new URLSearchParams(window.location.search).get('tab');
@@ -77,7 +76,6 @@ export default function App() {
   });
   const [historyIndex, setHistoryIndex] = useState<number>(0);
 
-  // Scroll Restoration Management
   const scrollMapRef = useRef<Record<string, number>>({});
   const navigationTypeRef = useRef<'INITIAL' | 'PUSH' | 'POP' | 'IDLE'>('INITIAL');
 
@@ -96,7 +94,6 @@ export default function App() {
   const [backendOnline, setBackendOnline] = useState<boolean>(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Browser History & PopState Sync
   useEffect(() => {
     if ('scrollRestoration' in window.history) {
       window.history.scrollRestoration = 'manual';
@@ -115,7 +112,6 @@ export default function App() {
     }
 
     const handlePopState = (e: PopStateEvent) => {
-      // Record current scroll position before tab switch
       const currentScrollY = window.scrollY || document.documentElement.scrollTop;
       scrollMapRef.current[currentTab] = currentScrollY;
 
@@ -131,15 +127,12 @@ export default function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [currentTab]);
 
-  // Tab navigation with PUSH history and instant top scroll
   const navigateToTab = useCallback((newTab: string) => {
     if (newTab === currentTab) return;
 
-    // 1. Record departing tab vertical scroll position
     const currentScrollY = window.scrollY || document.documentElement.scrollTop;
     scrollMapRef.current[currentTab] = currentScrollY;
 
-    // 2. Push state to browser history
     const nextIndex = (window.history.state?.index ?? 0) + 1;
     window.history.pushState(
       { tab: newTab, index: nextIndex },
@@ -148,15 +141,11 @@ export default function App() {
     );
     setHistoryIndex(nextIndex);
 
-    // 3. Mark navigation type as PUSH
     navigationTypeRef.current = 'PUSH';
     setCurrentTab(newTab);
-
-    // 4. Instantly start new page at top
     window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
   }, [currentTab]);
 
-  // In-app Back button: returns to previous page, or dashboard fallback if opened directly
   const handleInAppBack = useCallback(() => {
     const currentIndex = window.history.state?.index ?? historyIndex;
     if (currentIndex > 0) {
@@ -166,7 +155,6 @@ export default function App() {
     }
   }, [historyIndex, navigateToTab]);
 
-  // Scroll Restoration on POP when content finishes rendering
   useEffect(() => {
     if (navigationTypeRef.current === 'POP' && !isLoading) {
       const targetY = scrollMapRef.current[currentTab] ?? 0;
@@ -198,7 +186,6 @@ export default function App() {
     setInsights([]);
   };
 
-  // Primary data loader strictly scoped to authenticated user
   const loadData = useCallback(async (isRefresh = false) => {
     if (isRefresh) setIsRefreshing(true);
     else setIsLoading(true);
@@ -242,7 +229,6 @@ export default function App() {
     }
   }, [currentUser, loadData]);
 
-  // Income update
   const handleSaveIncome = async (income: number) => {
     setSummary((prev) => (prev ? { ...prev, monthly_income: income } : prev));
     try {
@@ -254,7 +240,6 @@ export default function App() {
     }
   };
 
-  // Category budget update
   const handleSaveBudget = async (category: string, limit: number) => {
     try {
       await setCategoryBudget(category, limit);
@@ -265,7 +250,6 @@ export default function App() {
     }
   };
 
-  // Create new transaction
   const handleTransactionSaved = async (newTx: NewTransactionPayload) => {
     try {
       await createTransaction(newTx);
@@ -276,7 +260,6 @@ export default function App() {
     }
   };
 
-  // Delete transaction
   const handleDeleteTransaction = async (txId: string) => {
     try {
       await deleteTransactionApi(txId);
@@ -288,7 +271,6 @@ export default function App() {
     }
   };
 
-  // Category management
   const handleAddCategory = async (name: string, type: CategoryType, color: string, icon: string) => {
     try {
       const created = await createCategoryApi({ name, type, color, icon });
@@ -309,7 +291,6 @@ export default function App() {
     }
   };
 
-  // If not authenticated, render light-mode AuthScreen
   if (!currentUser) {
     return <AuthScreen onAuthSuccess={handleAuthSuccess} />;
   }
@@ -321,7 +302,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#F4F5F7] flex text-slate-800 antialiased selection:bg-[#E5484D] selection:text-white">
-      {/* Sidebar Navigation (Desktop & Mobile Drawer) */}
+      {/* Sidebar Navigation */}
       <Sidebar
         currentTab={currentTab}
         setCurrentTab={navigateToTab}
@@ -329,6 +310,7 @@ export default function App() {
         setIsOpenMobile={setIsSidebarOpenMobile}
         onOpenUpload={() => setIsUploadModalOpen(true)}
         onOpenActionModal={(type) => setActiveModal(type)}
+        onOpenAdvisor={() => setIsAdvisorChatOpen(true)}
         currentUser={currentUser}
         onLogout={handleLogout}
       />
@@ -338,7 +320,6 @@ export default function App() {
         {/* Top Header Bar */}
         <header className="sticky top-0 z-30 h-16 bg-white/90 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-6 flex items-center justify-between shadow-2xs">
           <div className="flex items-center gap-3">
-            {/* In-App Back Button or Mobile Menu Button */}
             {currentTab !== 'dashboard' ? (
               <button
                 type="button"
@@ -361,7 +342,6 @@ export default function App() {
               </button>
             )}
 
-            {/* Logo on Mobile */}
             <div className="flex items-center gap-2 lg:hidden">
               <span className="text-xl" role="img" aria-label="AiFinance">🐝</span>
               <span className="font-black text-slate-900 text-base">
@@ -385,13 +365,11 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
-            {/* Cloud Sync Status */}
             <div className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
               <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
               <span>Cloud Synced</span>
             </div>
 
-            {/* Refresh Button */}
             <button
               type="button"
               onClick={() => loadData(true)}
@@ -402,7 +380,6 @@ export default function App() {
               <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin text-[#E5484D]' : ''}`} />
             </button>
 
-            {/* Scan Receipt Button */}
             <button
               type="button"
               onClick={() => setIsUploadModalOpen(true)}
@@ -412,7 +389,6 @@ export default function App() {
               <span>Scan Receipt</span>
             </button>
 
-            {/* Quick Add Expense Button */}
             <button
               type="button"
               onClick={() => setActiveModal('expense')}
@@ -458,10 +434,8 @@ export default function App() {
             </div>
           ) : (
             <>
-              {/* TAB 1: DASHBOARD (Home) */}
               {currentTab === 'dashboard' && (
                 <div className="space-y-6">
-                  {/* Hero Balance Card */}
                   <HeroBalanceCard
                     summary={summary}
                     userName={currentUser.name}
@@ -469,24 +443,20 @@ export default function App() {
                     totalBalance={effectiveTotalBalance}
                   />
 
-                  {/* My Wallets (Exactly 2 Fixed Wallets: Cash & Online) */}
                   <WalletsCarousel
                     wallets={wallets}
                     onWalletsUpdated={() => loadData(true)}
                     totalBalance={effectiveTotalBalance}
                   />
 
-                  {/* BeHisabi AI Section */}
                   <BeHisabiAISection
                     onOpenAdvisor={() => setIsAdvisorChatOpen(true)}
                     onOpenReceiptScan={() => setIsUploadModalOpen(true)}
                     onOpenSmartBudget={() => navigateToTab('budgets')}
                   />
 
-                  {/* Daily Spend Trend Chart */}
                   <DailySpendTrendChart transactions={transactions} />
 
-                  {/* AI Financial Insights Card & Financial Health */}
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <AIInsightsCard
                       insights={insights}
@@ -498,7 +468,6 @@ export default function App() {
                 </div>
               )}
 
-              {/* TAB 2: TRANSACTIONS (Dedicated Page) */}
               {currentTab === 'transactions' && (
                 <TransactionsPage
                   transactions={transactions}
@@ -509,7 +478,6 @@ export default function App() {
                 />
               )}
 
-              {/* TAB 3: STATS & ANALYTICS */}
               {currentTab === 'analytics' && (
                 <div className="space-y-6">
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -521,7 +489,6 @@ export default function App() {
                 </div>
               )}
 
-              {/* TAB 4: CATEGORY SETTINGS */}
               {currentTab === 'categories' && (
                 <CategorySettingsView
                   categories={categories}
@@ -530,7 +497,6 @@ export default function App() {
                 />
               )}
 
-              {/* TAB 5: CATEGORY BUDGETS */}
               {currentTab === 'budgets' && (
                 <div className="space-y-6">
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -544,7 +510,6 @@ export default function App() {
                 </div>
               )}
 
-              {/* TAB 6: SETTINGS */}
               {currentTab === 'settings' && (
                 <SettingsView
                   currentUser={currentUser}
@@ -557,14 +522,14 @@ export default function App() {
         </main>
       </div>
 
-      {/* Mobile Bottom Navigation Bar with Floating Red '+' Action Button */}
+      {/* Mobile Bottom Navigation Bar */}
       <BottomNavBar
         currentTab={currentTab}
         setCurrentTab={navigateToTab}
         onOpenQuickAction={() => setActiveModal('expense')}
       />
 
-      {/* Receipt Upload & Gemini Vision OCR Modal */}
+      {/* Modals */}
       <ReceiptUploadModal
         isOpen={isUploadModalOpen}
         onClose={() => setIsUploadModalOpen(false)}
@@ -572,7 +537,6 @@ export default function App() {
         wallets={wallets}
       />
 
-      {/* Finance Action Modal (Expense / Income / Budget) */}
       <FinanceActionModal
         type={activeModal}
         onClose={() => setActiveModal(null)}
@@ -583,7 +547,7 @@ export default function App() {
         wallets={wallets}
       />
 
-      {/* BeHisabi AI Chat Advisor Widget (Draggable, English Default, Real Wallet Context) */}
+      {/* AI Chat Advisor Widget */}
       <ChatWidget
         isOpenExternal={isAdvisorChatOpen}
         onCloseExternal={() => setIsAdvisorChatOpen(false)}

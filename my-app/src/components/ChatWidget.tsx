@@ -21,8 +21,8 @@ const SUGGESTED_PROMPTS = [
   'Give me 3 practical savings tips for Bangladesh.',
 ];
 
-const STORAGE_KEY = 'finai_assistant_pos';
-const WIDGET_SIZE = 56; // 56px x 56px (h-14 w-14)
+const STORAGE_KEY = 'finai_assistant_pos_v2';
+const WIDGET_SIZE = 56;
 const PADDING = 10;
 
 export const ChatWidget: React.FC<ChatWidgetProps> = ({
@@ -30,72 +30,50 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({
   onCloseExternal,
 }) => {
   const [internalOpen, setInternalOpen] = useState(false);
-  // Controlled or uncontrolled isOpen
   const isOpen = isOpenExternal !== undefined ? (isOpenExternal || internalOpen) : internalOpen;
 
-  // Position state (null before initial layout calculation)
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
 
-  // Drag tracking refs
   const isDraggingRef = useRef(false);
   const hasMovedRef = useRef(false);
   const dragStartRef = useRef({ startX: 0, startY: 0, origX: 0, origY: 0 });
   const positionRef = useRef<{ x: number; y: number }>({ x: 20, y: 300 });
 
-  // Chat window element ref for outside click detection
   const chatWindowRef = useRef<HTMLDivElement>(null);
 
-  // Calculate default position immediately above Settings
+  // Compute exact position matching the screenshots
   const computeDefaultPosition = useCallback((): { x: number; y: number } => {
+    const isDesktop = window.innerWidth >= 1024;
     const maxX = Math.max(PADDING, window.innerWidth - WIDGET_SIZE - PADDING);
     const maxY = Math.max(PADDING, window.innerHeight - WIDGET_SIZE - PADDING);
 
-    // 1. Desktop sidebar anchor check
-    if (window.innerWidth >= 1024) {
-      const anchor =
-        document.getElementById('ai-assistant-default-anchor-desktop') ||
-        document.getElementById('nav-settings-desktop');
+    // 1. DESKTOP MODE (According to Screenshot 2): Centered right on the Wallets section
+    if (isDesktop) {
+      // Look for the Wallets cards container or compute viewport relative coordinate
+      const sidebarWidth = 256;
+      const contentCenterX = sidebarWidth + (window.innerWidth - sidebarWidth) / 2;
+      const posX = Math.round(contentCenterX - WIDGET_SIZE / 2);
+      
+      // Placed slightly above wallet cards center (~470px to 510px depending on screen)
+      const posY = Math.min(Math.round(window.innerHeight * 0.58), maxY);
 
-      if (anchor) {
-        const rect = anchor.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0) {
-          const posX = Math.round(rect.left + (rect.width - WIDGET_SIZE) / 2);
-          const posY = Math.round(rect.top + (rect.height - WIDGET_SIZE) / 2);
-          return {
-            x: Math.min(Math.max(PADDING, posX), maxX),
-            y: Math.min(Math.max(PADDING, posY), maxY),
-          };
-        }
-      }
-      // Fallback in sidebar area
       return {
-        x: Math.min(Math.max(PADDING, 96), maxX),
-        y: Math.min(Math.max(PADDING, window.innerHeight - 150), maxY),
+        x: Math.min(Math.max(PADDING, posX), maxX),
+        y: Math.min(Math.max(PADDING, posY), maxY),
       };
     }
 
-    // 2. Mobile bottom bar check
-    const mobileAnchor = document.getElementById('nav-settings-mobile');
-    if (mobileAnchor) {
-      const rect = mobileAnchor.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) {
-        const posX = Math.round(rect.left + (rect.width - WIDGET_SIZE) / 2);
-        const posY = Math.round(rect.top - WIDGET_SIZE - 12);
-        return {
-          x: Math.min(Math.max(PADDING, posX), maxX),
-          y: Math.min(Math.max(PADDING, posY), maxY),
-        };
-      }
-    }
+    // 2. MOBILE MODE (According to Screenshot 1): Centered horizontally right above the Bottom Navigation Bar
+    const posX = Math.round((window.innerWidth - WIDGET_SIZE) / 2);
+    // 72px (bottom nav) + 24px clearance
+    const posY = Math.round(window.innerHeight - 92 - WIDGET_SIZE);
 
-    // Fallback default position
     return {
-      x: maxX,
-      y: Math.min(Math.max(PADDING, window.innerHeight - 140), maxY),
+      x: Math.min(Math.max(PADDING, posX), maxX),
+      y: Math.min(Math.max(PADDING, posY), maxY),
     };
   }, []);
 
-  // Initialize position from localStorage or default
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -114,10 +92,9 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({
         }
       }
     } catch {
-      // ignore JSON parse errors
+      // Ignore parsing errors
     }
 
-    // Compute default position after render
     const rafId = requestAnimationFrame(() => {
       const defaultPos = computeDefaultPosition();
       setPosition(defaultPos);
@@ -126,27 +103,17 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({
     return () => cancelAnimationFrame(rafId);
   }, [computeDefaultPosition]);
 
-  // Handle window resizing to keep widget strictly within viewport bounds
   useEffect(() => {
     const handleResize = () => {
-      setPosition((prev) => {
-        if (!prev) return computeDefaultPosition();
-        const maxX = Math.max(PADDING, window.innerWidth - WIDGET_SIZE - PADDING);
-        const maxY = Math.max(PADDING, window.innerHeight - WIDGET_SIZE - PADDING);
-        const clamped = {
-          x: Math.min(Math.max(PADDING, prev.x), maxX),
-          y: Math.min(Math.max(PADDING, prev.y), maxY),
-        };
-        positionRef.current = clamped;
-        return clamped;
-      });
+      const newPos = computeDefaultPosition();
+      setPosition(newPos);
+      positionRef.current = newPos;
     };
 
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, [computeDefaultPosition]);
 
-  // Robust close handler (fixes the close button bug!)
   const handleClose = useCallback(() => {
     setInternalOpen(false);
     if (onCloseExternal) {
@@ -158,7 +125,6 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({
     setInternalOpen(true);
   }, []);
 
-  // Keyboard accessibility: Escape key closes the chat
   useEffect(() => {
     if (!isOpen) return;
 
@@ -172,7 +138,6 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, handleClose]);
 
-  // Outside click closes the chat
   useEffect(() => {
     if (!isOpen) return;
 
@@ -194,9 +159,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({
     };
   }, [isOpen, handleClose]);
 
-  // Pointer drag handlers for desktop mouse & mobile finger
   const handlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
-    // Only respond to primary mouse click or touch
     if (e.button !== 0) return;
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
@@ -219,7 +182,6 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({
     const dx = e.clientX - dragStartRef.current.startX;
     const dy = e.clientY - dragStartRef.current.startY;
 
-    // Movement threshold (> 6px) to reliably distinguish drag from click
     if (!hasMovedRef.current && Math.hypot(dx, dy) > 6) {
       hasMovedRef.current = true;
     }
@@ -247,14 +209,12 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({
     }
 
     if (hasMovedRef.current) {
-      // Drag completed: persist the new position to localStorage
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(positionRef.current));
       } catch {
         // ignore
       }
     } else {
-      // Clean click: open chat interface
       handleOpen();
     }
   };
@@ -268,7 +228,6 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({
     }
   };
 
-  // Chat message & interaction state
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
@@ -398,7 +357,6 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({
                 </div>
               </div>
 
-              {/* CRITICAL: Working Close Button with High Z-Index & Reliable State Update */}
               <button
                 type="button"
                 onClick={(e) => {
