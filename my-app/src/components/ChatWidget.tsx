@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Send, Bot, User, Sparkles, Loader2 } from 'lucide-react';
+import { X, Send, Bot, User, Sparkles, Loader2, MessageSquare } from 'lucide-react';
 import { sendChatMessage } from '../services/api';
 
 interface Message {
@@ -10,18 +10,40 @@ interface Message {
 }
 
 interface ChatWidgetProps {
-  isDemoMode: boolean;
+  isOpenExternal?: boolean;
+  onCloseExternal?: () => void;
 }
 
-export const ChatWidget: React.FC<ChatWidgetProps> = ({ isDemoMode }) => {
-  const [isOpen, setIsOpen] = useState(false);
+const SUGGESTED_PROMPTS = [
+  'How can I reduce expenses this month?',
+  'Am I within my budget limits?',
+  'What is my top spending category?',
+  'Give me 3 practical savings tips for Bangladesh.',
+];
+
+export const ChatWidget: React.FC<ChatWidgetProps> = ({
+  isOpenExternal,
+  onCloseExternal,
+}) => {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isOpen = isOpenExternal !== undefined ? isOpenExternal : internalOpen;
+
+  const handleClose = () => {
+    if (onCloseExternal) onCloseExternal();
+    else setInternalOpen(false);
+  };
+
+  const handleOpen = () => {
+    setInternalOpen(true);
+  };
+
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'welcome',
       sender: 'bot',
-      text: 'হ্যালো! আমি FinAI, আপনার পার্সোনাল ফাইন্যান্সিয়াল অ্যাসিস্ট্যান্ট। বাজেট, সেভিংস টিপস বা খরচের হিসাব নিয়ে যেকোনো প্রশ্ন করতে পারেন।',
+      text: 'Hello! I am Finance AI, your personal financial assistant. You can ask me anything about your category budgets, savings goals, or recent expenses.',
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     },
   ]);
@@ -38,11 +60,10 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ isDemoMode }) => {
     }
   }, [messages, isOpen]);
 
-  const handleSend = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || loading) return;
+  const sendMessage = async (textToSend: string) => {
+    if (!textToSend.trim() || loading) return;
 
-    const userText = input.trim();
+    const userText = textToSend.trim();
     const userMsg: Message = {
       id: `usr_${Date.now()}`,
       sender: 'user',
@@ -55,7 +76,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ isDemoMode }) => {
     setLoading(true);
 
     try {
-      const reply = await sendChatMessage(userText, isDemoMode);
+      const reply = await sendChatMessage(userText);
       const botMsg: Message = {
         id: `bot_${Date.now()}`,
         sender: 'bot',
@@ -69,7 +90,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ isDemoMode }) => {
         {
           id: `bot_err_${Date.now()}`,
           sender: 'bot',
-          text: 'দুঃখিত, এআই রেসপন্স তৈরিতে সমস্যা হয়েছে। ব্যাকএন্ড সচল আছে কি না নিশ্চিত করুন।',
+          text: `Error connecting to Finance AI: ${err.message || 'Please check backend server connection.'}`,
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         },
       ]);
@@ -78,71 +99,79 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ isDemoMode }) => {
     }
   };
 
+  const handleFormSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    sendMessage(input);
+  };
+
   return (
     <div className="fixed bottom-6 right-6 z-50">
       {/* Floating Toggle Button */}
       {!isOpen && (
         <button
-          onClick={() => setIsOpen(true)}
-          className="h-14 w-14 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white shadow-xl flex items-center justify-center transition-transform hover:scale-105 active:scale-95 group relative"
-          aria-label="Open Finance AI Chat"
+          onClick={handleOpen}
+          className="h-14 w-14 rounded-full bg-[#E5484D] hover:bg-[#D63A3F] text-white shadow-xl flex items-center justify-center transition-transform hover:scale-105 active:scale-95 group relative cursor-pointer"
+          aria-label="Open Finance AI"
         >
           <Sparkles className="h-6 w-6 group-hover:rotate-12 transition-transform" />
           <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500"></span>
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500" />
           </span>
         </button>
       )}
 
       {/* Chat Window */}
       {isOpen && (
-        <div className="w-[360px] sm:w-[400px] h-[520px] bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-5 duration-200">
+        <div className="w-[360px] sm:w-[420px] h-[550px] bg-white rounded-3xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-5 duration-200">
           {/* Header */}
-          <div className="bg-indigo-600 px-4 py-3.5 text-white flex items-center justify-between shadow-sm">
-            <div className="flex items-center gap-2.5">
-              <div className="h-8 w-8 rounded-lg bg-white/20 backdrop-blur-sm flex items-center justify-center">
+          <div className="bg-gradient-to-r from-[#07241C] to-[#0E382C] px-5 py-4 text-white flex items-center justify-between shadow-xs">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-xl bg-white/15 backdrop-blur-xs flex items-center justify-center text-[#E5484D] shadow-xs">
                 <Bot className="h-5 w-5 text-white" />
               </div>
               <div>
-                <h3 className="text-sm font-bold leading-tight">FinAI Financial Advisor</h3>
-                <p className="text-[10px] text-indigo-100 flex items-center gap-1">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
-                  Online & ready to advise
+                <h3 className="text-sm font-bold leading-tight flex items-center gap-1.5">
+                  <span>Finance AI</span>
+                  <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                </h3>
+                <p className="text-[10px] text-emerald-200/80 font-medium">
+                  English Default • Context-Aware
                 </p>
               </div>
             </div>
             <button
-              onClick={() => setIsOpen(false)}
-              className="p-1 rounded-lg hover:bg-white/10 text-white/80 hover:text-white transition-colors"
+              onClick={handleClose}
+              className="p-1.5 rounded-xl hover:bg-white/10 text-white/80 hover:text-white transition-colors cursor-pointer"
+              aria-label="Close Finance AI"
             >
               <X className="h-5 w-5" />
             </button>
           </div>
 
           {/* Messages Body */}
-          <div className="flex-1 p-4 overflow-y-auto space-y-3.5 bg-slate-50/50 text-xs">
+          <div className="flex-1 p-4 overflow-y-auto space-y-3.5 bg-[#F8F9FA] text-xs">
             {messages.map((m) => (
               <div
                 key={m.id}
                 className={`flex gap-2.5 ${m.sender === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 {m.sender === 'bot' && (
-                  <div className="h-7 w-7 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0 mt-0.5">
+                  <div className="h-7 w-7 rounded-xl bg-[#0F382C] text-white flex items-center justify-center shrink-0 mt-0.5">
                     <Bot className="h-4 w-4" />
                   </div>
                 )}
                 <div
-                  className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 shadow-xs leading-relaxed whitespace-pre-wrap ${
+                  className={`max-w-[82%] rounded-2xl px-4 py-3 shadow-2xs leading-relaxed whitespace-pre-wrap ${
                     m.sender === 'user'
-                      ? 'bg-indigo-600 text-white rounded-tr-none'
+                      ? 'bg-[#E5484D] text-white rounded-tr-none'
                       : 'bg-white text-slate-800 border border-slate-200/80 rounded-tl-none'
                   }`}
                 >
                   <p>{m.text}</p>
                   <span
-                    className={`block text-[9px] mt-1 text-right ${
-                      m.sender === 'user' ? 'text-indigo-200' : 'text-slate-400'
+                    className={`block text-[9px] mt-1.5 text-right ${
+                      m.sender === 'user' ? 'text-rose-200' : 'text-slate-400'
                     }`}
                   >
                     {m.time}
@@ -155,30 +184,48 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ isDemoMode }) => {
                 )}
               </div>
             ))}
+
             {loading && (
               <div className="flex gap-2.5 items-center text-slate-500 text-xs italic">
-                <div className="h-7 w-7 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center">
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                <div className="h-7 w-7 rounded-xl bg-slate-200 text-slate-600 flex items-center justify-center">
+                  <Loader2 className="h-4 w-4 animate-spin text-[#E5484D]" />
                 </div>
-                <span>FinAI চিন্তা করছে...</span>
+                <span>Finance AI is thinking...</span>
               </div>
             )}
             <div ref={messagesEndRef} />
           </div>
 
+          {/* Suggested Prompts Carousel */}
+          {messages.length <= 2 && (
+            <div className="px-3 py-2 bg-slate-50 border-t border-slate-100 flex gap-1.5 overflow-x-auto scrollbar-none">
+              {SUGGESTED_PROMPTS.map((p, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => sendMessage(p)}
+                  className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-full text-[11px] font-medium text-slate-700 whitespace-nowrap transition-colors cursor-pointer shrink-0"
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Input Footer */}
-          <form onSubmit={handleSend} className="p-3 bg-white border-t border-slate-100 flex gap-2">
+          <form onSubmit={handleFormSubmit} className="p-3 bg-white border-t border-slate-200 flex gap-2">
             <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="বাজেট বা সঞ্চয় নিয়ে প্রশ্ন করুন..."
-              className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+              placeholder="Ask a question about your budget or spending..."
+              className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F382C]/20 focus:border-[#0F382C]"
             />
             <button
               type="submit"
               disabled={loading || !input.trim()}
-              className="p-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white transition-colors shrink-0"
+              className="p-2.5 rounded-xl bg-[#E5484D] hover:bg-[#D63A3F] disabled:opacity-50 text-white transition-colors shrink-0 cursor-pointer shadow-xs"
+              aria-label="Send message"
             >
               <Send className="h-4 w-4" />
             </button>

@@ -94,3 +94,21 @@ class ChatMessageRequest(BaseModel):
 
 class ChatMessageResponse(BaseModel):
     reply: str
+
+# --- CATEGORY SCHEMAS ---
+
+class CategoryCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    type: Literal["expense", "income", "savings"] = "expense"
+    color: Optional[str] = "#E5484D"
+    icon: Optional[str] = "tag"
+
+class CategoryResponse(BaseModel):
+    id: str
+    name: str
+    type: str
+    color: str
+    icon: str
+
+    class Config:
+        from_attributes = True

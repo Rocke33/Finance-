@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import jwt
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Query, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
@@ -17,16 +18,16 @@ from ai_service import process_receipt_image, answer_finance_query
 load_dotenv()
 
 # JWT Config
-SECRET_KEY = "hackathon-secret-jwt-key"
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "hackathon-secret-jwt-key")
 ALGORITHM = "HS256"
 
 # Initialize database on startup
 database.init_db()
 
 app = FastAPI(
-    title="AI-Powered Personal Finance Assistant API",
+    title="BeHisabi Personal Finance Assistant API",
     version="1.0.0",
-    description="Backend API for personal finance tracking, budget calculations, and AI receipt processing."
+    description="Backend API for personal finance tracking, budget calculations, receipt extraction, and AI advice."
 )
 
 # CORS configuration
@@ -68,7 +69,9 @@ class BudgetSet(BaseModel):
     category: str
     monthly_limit: float
 
-# --- HELPER FUNCTIONS ---
+# --- AUTH HELPERS & SECURITY DEPENDENCY ---
+
+security = HTTPBearer(auto_error=True)
 
 def create_access_token(data: dict, expires_delta: timedelta = timedelta(days=7)):
     to_encode = data.copy()
@@ -76,13 +79,43 @@ def create_access_token(data: dict, expires_delta: timedelta = timedelta(days=7)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-# --- ROUTES ---
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(database.get_db)
+) -> database.UserDB:
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token payload: subject missing.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    except jwt.PyJWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate authentication credentials.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    user = database.get_user_by_id_repo(db, user_id=str(user_id))
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authenticated user account not found.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return user
+
+# --- HEALTH ---
 
 @app.get("/", tags=["Health"])
 def health_check():
     return {
         "status": "Online",
-        "service": "AI-Powered Personal Finance Engine",
+        "service": "BeHisabi Personal Finance Assistant Engine",
         "version": "1.0.0"
     }
 
@@ -141,11 +174,11 @@ def login_user(user_in: schemas.UserLogin, db: Session = Depends(database.get_db
     tags=["Dashboard"]
 )
 def get_dashboard_summary(
-    user_id: str = database.DEFAULT_DEMO_USER_ID,
+    current_user: database.UserDB = Depends(get_current_user),
     db: Session = Depends(database.get_db)
 ):
     try:
-        return database.calculate_dashboard_summary_repo(db, user_id=user_id)
+        return database.calculate_dashboard_summary_repo(db, user_id=str(current_user.id))
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -155,11 +188,11 @@ def get_dashboard_summary(
 @app.put("/api/user/income", tags=["Dashboard"])
 def update_user_income(
     data: IncomeUpdate,
-    user_id: str = database.DEFAULT_DEMO_USER_ID,
+    current_user: database.UserDB = Depends(get_current_user),
     db: Session = Depends(database.get_db)
 ):
     try:
-        updated = database.update_income_repo(db, user_id=user_id, income=data.income)
+        database.update_income_repo(db, user_id=str(current_user.id), income=data.income)
         return {"status": "success", "monthly_income": data.income}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -167,16 +200,75 @@ def update_user_income(
 @app.post("/api/budgets", tags=["Budgets"])
 def set_or_update_budget(
     data: BudgetSet,
-    user_id: str = database.DEFAULT_DEMO_USER_ID,
+    current_user: database.UserDB = Depends(get_current_user),
     db: Session = Depends(database.get_db)
 ):
     try:
-        budget = database.set_budget_repo(
-            db, user_id=user_id, category=data.category, limit=data.monthly_limit
+        database.set_budget_repo(
+            db, user_id=str(current_user.id), category=data.category, limit=data.monthly_limit
         )
         return {"status": "success", "category": data.category, "allocated": data.monthly_limit}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# --- CATEGORY MANAGEMENT ROUTES ---
+
+@app.get(
+    "/api/categories",
+    response_model=List[schemas.CategoryResponse],
+    summary="List User Categories",
+    tags=["Categories"]
+)
+def get_categories(
+    current_user: database.UserDB = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    try:
+        return database.get_categories_repo(db, user_id=str(current_user.id))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch categories: {str(e)}")
+
+@app.post(
+    "/api/categories",
+    response_model=schemas.CategoryResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create User Category",
+    tags=["Categories"]
+)
+def create_category(
+    cat_in: schemas.CategoryCreate,
+    current_user: database.UserDB = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    try:
+        return database.create_category_repo(
+            db=db,
+            user_id=str(current_user.id),
+            name=cat_in.name,
+            cat_type=cat_in.type,
+            color=cat_in.color or "#E5484D",
+            icon=cat_in.icon or "tag"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create category: {str(e)}")
+
+@app.delete(
+    "/api/categories/{category_id}",
+    summary="Delete User Category",
+    tags=["Categories"]
+)
+def delete_category(
+    category_id: str,
+    current_user: database.UserDB = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    try:
+        database.delete_category_repo(db=db, user_id=str(current_user.id), category_id_or_name=category_id)
+        return {"status": "success", "deleted_category": category_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete category: {str(e)}")
+
+# --- TRANSACTION ROUTES ---
 
 @app.get(
     "/api/transactions",
@@ -186,15 +278,15 @@ def set_or_update_budget(
 )
 def get_transactions(
     category: Optional[str] = Query(None, description="Filter by category"),
-    limit: int = Query(50, ge=1, le=100, description="Max records to return"),
+    limit: int = Query(100, ge=1, le=200, description="Max records to return"),
     offset: int = Query(0, ge=0, description="Records offset"),
-    user_id: str = database.DEFAULT_DEMO_USER_ID,
+    current_user: database.UserDB = Depends(get_current_user),
     db: Session = Depends(database.get_db)
 ):
     try:
         txs = database.get_transactions_repo(
             db=db,
-            user_id=user_id,
+            user_id=str(current_user.id),
             category=category,
             limit=limit,
             offset=offset
@@ -225,11 +317,11 @@ def get_transactions(
 )
 def create_transaction(
     tx_in: schemas.TransactionCreate,
-    user_id: str = database.DEFAULT_DEMO_USER_ID,
+    current_user: database.UserDB = Depends(get_current_user),
     db: Session = Depends(database.get_db)
 ):
     try:
-        new_tx = database.create_transaction_repo(db=db, tx=tx_in, user_id=user_id)
+        new_tx = database.create_transaction_repo(db=db, tx=tx_in, user_id=str(current_user.id))
         return schemas.TransactionResponse(
             id=new_tx.id,
             merchant=new_tx.merchant,
@@ -244,6 +336,38 @@ def create_transaction(
             detail=f"Failed to create transaction: {str(e)}"
         )
 
+@app.delete(
+    "/api/transactions/{transaction_id}",
+    summary="Delete Transaction",
+    tags=["Transactions"]
+)
+def delete_transaction(
+    transaction_id: str,
+    current_user: database.UserDB = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    try:
+        deleted = database.delete_transaction_repo(
+            db=db,
+            user_id=str(current_user.id),
+            transaction_id=transaction_id
+        )
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Transaction not found or not owned by current user."
+            )
+        return {"status": "success", "deleted_id": transaction_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete transaction: {str(e)}"
+        )
+
+# --- AI INSIGHTS ROUTE ---
+
 @app.get(
     "/api/insights",
     response_model=schemas.AIInsightsResponse,
@@ -251,17 +375,19 @@ def create_transaction(
     tags=["Insights"]
 )
 def get_insights(
-    user_id: str = database.DEFAULT_DEMO_USER_ID,
+    current_user: database.UserDB = Depends(get_current_user),
     db: Session = Depends(database.get_db)
 ):
     try:
-        insights = database.generate_insights_repo(db, user_id=user_id)
+        insights = database.generate_insights_repo(db, user_id=str(current_user.id))
         return schemas.AIInsightsResponse(insights=insights)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate financial insights: {str(e)}"
         )
+
+# --- RECEIPT EXTRACTION ROUTE ---
 
 @app.post(
     "/api/upload-receipt",
@@ -323,11 +449,11 @@ async def upload_receipt(file: UploadFile = File(...)):
 @app.post("/api/chat", response_model=schemas.ChatMessageResponse, tags=["AI"])
 def chat_with_finai(
     req: schemas.ChatMessageRequest,
-    user_id: str = database.DEFAULT_DEMO_USER_ID,
+    current_user: database.UserDB = Depends(get_current_user),
     db: Session = Depends(database.get_db)
 ):
     try:
-        summary_data = database.calculate_dashboard_summary_repo(db, user_id=user_id)
+        summary_data = database.calculate_dashboard_summary_repo(db, user_id=str(current_user.id))
         user_context = {
             "monthly_income": summary_data.monthly_income,
             "total_budget": summary_data.total_budget,

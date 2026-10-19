@@ -312,17 +312,17 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
               </div>
             </div>
 
-            <div className="pt-2 flex items-center justify-end gap-3">
+            <div className="pt-3 flex items-center justify-end gap-3">
               <button
                 type="button"
                 onClick={resetState}
-                className="px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-lg text-xs font-semibold transition-colors"
+                className="px-4 py-2.5 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
               >
                 Scan Another
               </button>
               <button
                 type="submit"
-                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors"
+                className="px-5 py-2.5 bg-[#E5484D] hover:bg-[#D63A3F] text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
               >
                 Confirm & Add Transaction
               </button>

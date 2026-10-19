@@ -4,29 +4,51 @@ import {
   Receipt,
   RefreshCw,
   AlertCircle,
-  Database,
-  Radio,
+  Plus,
+  Bell,
+  Settings as SettingsIcon,
+  CheckCircle,
 } from 'lucide-react';
-import { BudgetSummary, BudgetCategory, Transaction, AIInsight, NewTransactionPayload } from './types/finance';
+
+import {
+  BudgetSummary,
+  Transaction,
+  AIInsight,
+  NewTransactionPayload,
+  CategoryItem,
+  CategoryType,
+} from './types/finance';
+
 import {
   getDashboardSummary,
   getTransactions,
   getAIInsights,
   createTransaction,
+  deleteTransactionApi,
   checkBackendHealth,
   updateUserIncome,
   setCategoryBudget,
+  getCategoriesApi,
+  createCategoryApi,
+  deleteCategoryApi,
   UserProfile,
 } from './services/api';
 
 import { Sidebar } from './components/Sidebar';
-import { SummaryCards } from './components/SummaryCards';
-import { SpendingChart } from './components/SpendingChart';
-import { WeeklySpendingChart } from './components/WeeklySpendingChart';
+import { BottomNavBar } from './components/BottomNavBar';
+import { HeroBalanceCard } from './components/HeroBalanceCard';
+import { WalletsCarousel } from './components/WalletsCarousel';
+import { BeHisabiAISection } from './components/BeHisabiAISection';
+import { DailySpendTrendChart } from './components/DailySpendTrendChart';
+import { TransactionsPage } from './components/TransactionsPage';
+import { CategorySettingsView } from './components/CategorySettingsView';
+import { FinancialHealthCard } from './components/FinancialHealthCard';
+import { MonthlySpendingForecast } from './components/MonthlySpendingForecast';
 import { MonthlySpendingPieChart } from './components/MonthlySpendingPieChart';
+import { SpendingChart } from './components/SpendingChart';
 import { BudgetCategoryList } from './components/BudgetCategoryList';
-import { TransactionTable } from './components/TransactionTable';
 import { AIInsightsCard } from './components/AIInsightsCard';
+import { SettingsView } from './components/SettingsView';
 import { ReceiptUploadModal } from './components/ReceiptUploadModal';
 import { FinanceActionModal, ActionModalType } from './components/FinanceActionModal';
 import { AuthScreen } from './components/AuthScreen';
@@ -48,16 +70,15 @@ export default function App() {
   const [isSidebarOpenMobile, setIsSidebarOpenMobile] = useState<boolean>(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState<boolean>(false);
   const [activeModal, setActiveModal] = useState<ActionModalType>(null);
-  
-  // ডেমো/লাইভ মোড নিয়ন্ত্রণ
-  const [isDemoMode, setIsDemoMode] = useState<boolean>(false);
+  const [isAdvisorChatOpen, setIsAdvisorChatOpen] = useState<boolean>(false);
 
   const [summary, setSummary] = useState<BudgetSummary | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [insights, setInsights] = useState<AIInsight[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
-  const [backendOnline, setBackendOnline] = useState<boolean>(false);
+  const [backendOnline, setBackendOnline] = useState<boolean>(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleAuthSuccess = (user: UserProfile, token: string) => {
@@ -70,44 +91,45 @@ export default function App() {
     localStorage.removeItem('finai_token');
     localStorage.removeItem('finai_user');
     setCurrentUser(null);
+    setSummary(null);
+    setTransactions([]);
+    setCategories([]);
+    setInsights([]);
   };
 
-  // সব ডাটা ফেচ করার হ্যান্ডলার
-  const loadData = useCallback(async (isRefresh = false, forceDemoMode?: boolean) => {
+  // Primary data loader strictly scoped to authenticated user
+  const loadData = useCallback(async (isRefresh = false) => {
     if (isRefresh) setIsRefreshing(true);
     else setIsLoading(true);
     setErrorMessage(null);
 
-    const activeDemoSetting = forceDemoMode !== undefined ? forceDemoMode : isDemoMode;
-
     try {
-      let isOnline = false;
-      try {
-        isOnline = await checkBackendHealth();
-      } catch {
-        isOnline = false;
-      }
-      setBackendOnline(isOnline);
+      const online = await checkBackendHealth();
+      setBackendOnline(online);
 
-      const useDemo = activeDemoSetting || !isOnline;
-
-      const [summaryRes, txsRes, insightsRes] = await Promise.all([
-        getDashboardSummary(useDemo),
-        getTransactions(undefined, useDemo),
-        getAIInsights(useDemo),
+      const [summaryRes, txsRes, insightsRes, catRes] = await Promise.all([
+        getDashboardSummary(),
+        getTransactions(),
+        getAIInsights(),
+        getCategoriesApi().catch(() => []),
       ]);
 
       setSummary(summaryRes.data);
       setTransactions(txsRes.data);
       setInsights(insightsRes.data);
+      setCategories(catRes);
     } catch (err: any) {
-      console.error('Failed to load finance data:', err);
-      setErrorMessage(err.message || 'Could not load finance records.');
+      console.error('Failed to load user financial data:', err);
+      if (err.message && (err.message.includes('401') || err.message.includes('validate credentials'))) {
+        handleLogout();
+      } else {
+        setErrorMessage(err.message || 'Could not load your financial records. Please check the backend connection.');
+      }
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [isDemoMode]);
+  }, []);
 
   useEffect(() => {
     if (currentUser) {
@@ -115,186 +137,136 @@ export default function App() {
     }
   }, [currentUser, loadData]);
 
-  const handleToggleDemoMode = (demo: boolean) => {
-    setIsDemoMode(demo);
-    loadData(true, demo);
-  };
-
-  // ১. ইনকাম সেভ করার হ্যান্ডলার
+  // Income update
   const handleSaveIncome = async (income: number) => {
     setSummary((prev) => (prev ? { ...prev, monthly_income: income } : prev));
     try {
-      await updateUserIncome(income, isDemoMode || !backendOnline);
-      if (backendOnline && !isDemoMode) await loadData(true);
+      await updateUserIncome(income);
+      await loadData(true);
     } catch (err: any) {
-      console.warn('Income persistence error:', err);
+      console.error('Income update failed:', err);
+      setErrorMessage(err.message || 'Failed to update income.');
     }
   };
 
-  // ২. বাজেট সেভ করার হ্যান্ডলার
+  // Category budget update
   const handleSaveBudget = async (category: string, limit: number) => {
-    setSummary((prev) => {
-      if (!prev) return prev;
-
-      const hasCategory = prev.categories.some((cat) => cat.name.toLowerCase() === category.toLowerCase());
-      const updatedCategories: BudgetCategory[] = hasCategory
-        ? prev.categories.map((cat) => {
-            if (cat.name.toLowerCase() !== category.toLowerCase()) return cat;
-            const status = cat.spent >= limit ? 'danger' : cat.spent >= limit * 0.8 ? 'warning' : 'normal';
-            return { ...cat, allocated: limit, status };
-          })
-        : [...prev.categories, { name: category, allocated: limit, spent: 0, status: 'normal' }];
-      
-      const totalBudget = updatedCategories.reduce((total, cat) => total + cat.allocated, 0);
-
-      return {
-        ...prev,
-        total_budget: totalBudget,
-        remaining: totalBudget - prev.total_spent,
-        categories: updatedCategories,
-      };
-    });
-
     try {
-      await setCategoryBudget(category, limit, isDemoMode || !backendOnline);
-      if (backendOnline && !isDemoMode) await loadData(true);
+      await setCategoryBudget(category, limit);
+      await loadData(true);
     } catch (err: any) {
-      console.warn('Budget persistence error:', err);
+      console.error('Budget update failed:', err);
+      setErrorMessage(err.message || 'Failed to save category budget.');
     }
   };
 
-  // ৩. এক্সপেন্স/রসিদ সেভ করার হ্যান্ডলার
+  // Create new transaction
   const handleTransactionSaved = async (newTx: NewTransactionPayload) => {
-    const expenseAmount = Number(newTx.amount);
-
-    const newEntry: Transaction = {
-      id: `tx-${Date.now()}`,
-      merchant: newTx.merchant,
-      category: newTx.category,
-      amount: expenseAmount,
-      date: newTx.date,
-      receipt_url: newTx.receipt_url ?? null,
-    };
-
-    setTransactions((prev) => [newEntry, ...prev]);
-
-    setSummary((prev) => {
-      if (!prev) return prev;
-
-      const updatedSpent = Number(prev.total_spent || 0) + expenseAmount;
-      const updatedRemaining = Number(prev.monthly_income || 0) - updatedSpent;
-
-      const updatedCategories: BudgetCategory[] = prev.categories.map((cat) => {
-        if (cat.name.toLowerCase() === newTx.category.toLowerCase()) {
-          const newSpent = Number(cat.spent || 0) + expenseAmount;
-          let newStatus: 'normal' | 'warning' | 'danger' = 'normal';
-
-          if (newSpent >= cat.allocated) {
-            newStatus = 'danger';
-          } else if (newSpent >= cat.allocated * 0.8) {
-            newStatus = 'warning';
-          }
-
-          return {
-            ...cat,
-            spent: newSpent,
-            status: newStatus,
-          };
-        }
-        return cat;
-      });
-
-      return {
-        ...prev,
-        total_spent: updatedSpent,
-        remaining: updatedRemaining,
-        categories: updatedCategories,
-      };
-    });
-
     try {
-      await createTransaction(newTx, isDemoMode || !backendOnline);
-      if (backendOnline && !isDemoMode) {
-        await loadData(true);
-      }
+      await createTransaction(newTx);
+      await loadData(true);
     } catch (err: any) {
-      console.warn('Backend persistence error:', err);
+      console.error('Transaction creation failed:', err);
+      setErrorMessage(err.message || 'Failed to save transaction.');
     }
   };
 
-  const isActuallyLive = backendOnline && !isDemoMode;
+  // Delete transaction
+  const handleDeleteTransaction = async (txId: string) => {
+    try {
+      await deleteTransactionApi(txId);
+      setTransactions((prev) => prev.filter((t) => t.id !== txId));
+      await loadData(true);
+    } catch (err: any) {
+      console.error('Transaction deletion failed:', err);
+      setErrorMessage(err.message || 'Failed to delete transaction.');
+    }
+  };
 
-  // ইউজার না থাকলে লগইন স্ক্রিন প্রদর্শিত হবে
+  // Category management
+  const handleAddCategory = async (name: string, type: CategoryType, color: string, icon: string) => {
+    try {
+      const created = await createCategoryApi({ name, type, color, icon });
+      setCategories((prev) => [...prev, created]);
+    } catch (err: any) {
+      console.error('Category creation failed:', err);
+      throw err;
+    }
+  };
+
+  const handleDeleteCategory = async (catId: string) => {
+    try {
+      await deleteCategoryApi(catId);
+      setCategories((prev) => prev.filter((c) => c.id !== catId));
+    } catch (err: any) {
+      console.error('Category deletion failed:', err);
+      throw err;
+    }
+  };
+
+  // If not authenticated, render light-mode AuthScreen
   if (!currentUser) {
-    return (
-      <AuthScreen
-        onAuthSuccess={handleAuthSuccess}
-        onContinueAsGuest={() =>
-          setCurrentUser({
-            id: '00000000-0000-0000-0000-000000000001',
-            name: 'Demo User',
-            email: 'demo@finance.app',
-            income: 60000,
-          })
-        }
-      />
-    );
+    return <AuthScreen onAuthSuccess={handleAuthSuccess} />;
   }
 
+  const categoryNamesList = categories.map((c) => c.name);
+
   return (
-    <div className="min-h-screen bg-slate-50 flex">
-      {/* Sidebar Navigation */}
+    <div className="min-h-screen bg-[#F4F5F7] flex text-slate-800 antialiased selection:bg-[#E5484D] selection:text-white">
+      {/* Sidebar Navigation (Desktop & Mobile Drawer) */}
       <Sidebar
         currentTab={currentTab}
         setCurrentTab={setCurrentTab}
         isOpenMobile={isSidebarOpenMobile}
         setIsOpenMobile={setIsSidebarOpenMobile}
-        isDemoMode={!isActuallyLive}
-        setIsDemoMode={handleToggleDemoMode}
         onOpenUpload={() => setIsUploadModalOpen(true)}
         onOpenActionModal={(type) => setActiveModal(type)}
         currentUser={currentUser}
         onLogout={handleLogout}
       />
 
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 lg:pl-64">
-        {/* Top App Header */}
-        <header className="sticky top-0 z-30 h-16 bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between">
+      {/* Main Content Viewport */}
+      <div className="flex-1 flex flex-col min-w-0 lg:pl-64 pb-20 lg:pb-8">
+        {/* Top Header Bar */}
+        <header className="sticky top-0 z-30 h-16 bg-white/90 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-6 flex items-center justify-between shadow-2xs">
           <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={() => setIsSidebarOpenMobile(true)}
-              className="p-2 -ml-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 lg:hidden"
-              aria-label="Open sidebar menu"
+              className="p-2 -ml-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 lg:hidden cursor-pointer"
+              aria-label="Open menu"
             >
               <Menu className="h-5 w-5" />
             </button>
-            <h1 className="text-lg sm:text-xl font-bold text-slate-900 capitalize">
-              {currentTab === 'dashboard' ? 'Overview' : currentTab.replace('-', ' ')}
+
+            {/* Logo on Mobile */}
+            <div className="flex items-center gap-2 lg:hidden">
+              <span className="text-xl" role="img" aria-label="BeHisabi Bee">🐝</span>
+              <span className="font-black text-slate-900 text-base">
+                AI<span className="text-[#E5484D]">Finance</span>
+              </span>
+            </div>
+
+            <h1 className="hidden lg:block text-base sm:text-lg font-bold text-slate-900 capitalize">
+              {currentTab === 'dashboard'
+                ? 'Financial Dashboard'
+                : currentTab === 'transactions'
+                ? 'Transactions History'
+                : currentTab === 'analytics'
+                ? 'Spending Statistics & Trends'
+                : currentTab === 'categories'
+                ? 'Category Settings'
+                : currentTab === 'budgets'
+                ? 'Category Budgets'
+                : 'Account Settings'}
             </h1>
           </div>
 
-          <div className="flex items-center gap-2.5 sm:gap-3">
-            {/* Backend Status Pill */}
-            <div
-              className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${
-                isActuallyLive
-                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                  : 'bg-amber-50 text-amber-700 border-amber-200'
-              }`}
-            >
-              {isActuallyLive ? (
-                <>
-                  <Radio className="h-3 w-3 text-emerald-500 animate-pulse" />
-                  <span>Live Backend</span>
-                </>
-              ) : (
-                <>
-                  <Database className="h-3 w-3 text-amber-500" />
-                  <span>{isDemoMode ? 'Demo Mode' : 'Offline Mock'}</span>
-                </>
-              )}
+          <div className="flex items-center gap-2 sm:gap-3">
+            {/* Cloud Sync Status */}
+            <div className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Cloud Synced</span>
             </div>
 
             {/* Refresh Button */}
@@ -302,29 +274,39 @@ export default function App() {
               type="button"
               onClick={() => loadData(true)}
               disabled={isRefreshing}
-              className="p-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
-              title="Refresh data"
+              className="p-2 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer"
+              title="Refresh financial data"
             >
-              <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin text-indigo-600' : ''}`} />
+              <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin text-[#E5484D]' : ''}`} />
             </button>
 
             {/* Scan Receipt Button */}
             <button
               type="button"
               onClick={() => setIsUploadModalOpen(true)}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
+              className="hidden sm:inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-bold shadow-2xs transition-colors cursor-pointer"
             >
-              <Receipt className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Scan Receipt</span>
-              <span className="sm:hidden">Scan</span>
+              <Receipt className="h-3.5 w-3.5 text-slate-500" />
+              <span>Scan Receipt</span>
+            </button>
+
+            {/* Quick Add Expense Button */}
+            <button
+              type="button"
+              onClick={() => setActiveModal('expense')}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#E5484D] hover:bg-[#D63A3F] text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
+            >
+              <Plus className="h-4 w-4" />
+              <span className="hidden sm:inline">Add Expense</span>
+              <span className="sm:hidden">Add</span>
             </button>
           </div>
         </header>
 
-        {/* Page Body */}
+        {/* Page Content Body */}
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto space-y-6">
           {errorMessage && (
-            <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 flex items-start justify-between gap-3 text-xs text-rose-700">
+            <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 flex items-start justify-between gap-3 text-xs text-rose-700">
               <div className="flex items-start gap-2">
                 <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
                 <span>{errorMessage}</span>
@@ -332,7 +314,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => loadData(true)}
-                className="font-semibold underline hover:text-rose-900"
+                className="font-bold underline hover:text-rose-900 cursor-pointer"
               >
                 Retry
               </button>
@@ -342,90 +324,141 @@ export default function App() {
           {isLoading ? (
             <LoadingSkeleton />
           ) : !summary ? (
-            <div className="text-center py-20 bg-white rounded-xl border border-slate-200">
-              <p className="text-sm text-slate-500">Failed to load budget records.</p>
+            <div className="text-center py-20 bg-white rounded-3xl border border-slate-200 shadow-xs">
+              <p className="text-sm font-semibold text-slate-600">Failed to load personal finance records.</p>
               <button
                 type="button"
                 onClick={() => loadData()}
-                className="mt-3 px-4 py-2 bg-indigo-600 text-white text-xs font-medium rounded-lg"
+                className="mt-3 px-5 py-2.5 bg-[#E5484D] hover:bg-[#D63A3F] text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer"
               >
                 Reload Dashboard
               </button>
             </div>
           ) : (
             <>
+              {/* TAB 1: DASHBOARD (Home) */}
               {currentTab === 'dashboard' && (
                 <div className="space-y-6">
-                  <SummaryCards summary={summary} />
-
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <div className="lg:col-span-2">
-                      <SpendingChart categories={summary.categories} />
-                    </div>
-                    <div>
-                      <BudgetCategoryList categories={summary.categories} />
-                    </div>
-                  </div>
-                  <WeeklySpendingChart transactions={transactions} />
-                  <MonthlySpendingPieChart categories={summary.categories} />
-
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <div className="lg:col-span-2">
-                      <TransactionTable
-                        transactions={transactions}
-                        onOpenUpload={() => setIsUploadModalOpen(true)}
-                      />
-                    </div>
-                    <div>
-                      <AIInsightsCard insights={insights} />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {currentTab === 'transactions' && (
-                <div className="space-y-6">
-                  <TransactionTable
-                    transactions={transactions}
-                    onOpenUpload={() => setIsUploadModalOpen(true)}
+                  {/* Hero Balance Card */}
+                  <HeroBalanceCard
+                    summary={summary}
+                    userName={currentUser.name}
+                    onEditIncome={() => setActiveModal('income')}
                   />
+
+                  {/* My Wallets Carousel */}
+                  <WalletsCarousel totalBalance={Math.max(0, summary.monthly_income - summary.total_spent)} />
+
+                  {/* BeHisabi AI Section */}
+                  <BeHisabiAISection
+                    onOpenAdvisor={() => setIsAdvisorChatOpen(true)}
+                    onOpenReceiptScan={() => setIsUploadModalOpen(true)}
+                    onOpenSmartBudget={() => setCurrentTab('budgets')}
+                  />
+
+                  {/* Daily Spend Trend Chart */}
+                  <DailySpendTrendChart transactions={transactions} />
+
+                  {/* AI Financial Insights Card & Financial Health */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <AIInsightsCard
+                      insights={insights}
+                      onOpenAddExpense={() => setActiveModal('expense')}
+                      onOpenSetBudget={() => setActiveModal('budget')}
+                    />
+                    <FinancialHealthCard summary={summary} />
+                  </div>
                 </div>
               )}
 
+              {/* TAB 2: TRANSACTIONS (Dedicated Page) */}
+              {currentTab === 'transactions' && (
+                <TransactionsPage
+                  transactions={transactions}
+                  summary={summary}
+                  onOpenUpload={() => setIsUploadModalOpen(true)}
+                  onOpenAddExpense={() => setActiveModal('expense')}
+                  onDeleteTransaction={handleDeleteTransaction}
+                />
+              )}
+
+              {/* TAB 3: STATS & ANALYTICS */}
+              {currentTab === 'analytics' && (
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <FinancialHealthCard summary={summary} />
+                    <MonthlySpendingForecast summary={summary} />
+                  </div>
+                  <MonthlySpendingPieChart categories={summary.categories} />
+                  <DailySpendTrendChart transactions={transactions} />
+                </div>
+              )}
+
+              {/* TAB 4: CATEGORY SETTINGS */}
+              {currentTab === 'categories' && (
+                <CategorySettingsView
+                  categories={categories}
+                  onAddCategory={handleAddCategory}
+                  onDeleteCategory={handleDeleteCategory}
+                />
+              )}
+
+              {/* TAB 5: CATEGORY BUDGETS */}
               {currentTab === 'budgets' && (
                 <div className="space-y-6">
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <BudgetCategoryList
+                      categories={summary.categories}
+                      onOpenSetBudget={() => setActiveModal('budget')}
+                    />
                     <SpendingChart categories={summary.categories} />
-                    <BudgetCategoryList categories={summary.categories} />
                   </div>
+                  <MonthlySpendingForecast summary={summary} />
                 </div>
               )}
 
-              {currentTab === 'insights' && (
-                <div className="max-w-2xl mx-auto space-y-6">
-                  <AIInsightsCard insights={insights} />
-                </div>
+              {/* TAB 6: SETTINGS */}
+              {currentTab === 'settings' && (
+                <SettingsView
+                  currentUser={currentUser}
+                  onNavigateTab={(tab) => setCurrentTab(tab)}
+                  onLogout={handleLogout}
+                />
               )}
             </>
           )}
         </main>
       </div>
 
+      {/* Mobile Bottom Navigation Bar with Floating Red '+' Action Button */}
+      <BottomNavBar
+        currentTab={currentTab}
+        setCurrentTab={setCurrentTab}
+        onOpenQuickAction={() => setActiveModal('expense')}
+      />
+
+      {/* Receipt Upload & Gemini Vision OCR Modal */}
       <ReceiptUploadModal
         isOpen={isUploadModalOpen}
         onClose={() => setIsUploadModalOpen(false)}
         onTransactionSaved={handleTransactionSaved}
       />
+
+      {/* Finance Action Modal (Expense / Income / Budget) */}
       <FinanceActionModal
         type={activeModal}
         onClose={() => setActiveModal(null)}
         onSaveExpense={handleTransactionSaved}
         onSaveIncome={handleSaveIncome}
         onSaveBudget={handleSaveBudget}
+        availableCategories={categoryNamesList}
       />
 
-      {/* Floating FinAI Chatbot */}
-      <ChatWidget isDemoMode={!isActuallyLive} />
+      {/* BeHisabi AI Chat Advisor Widget (Defaults to English) */}
+      <ChatWidget
+        isOpenExternal={isAdvisorChatOpen ? true : undefined}
+        onCloseExternal={() => setIsAdvisorChatOpen(false)}
+      />
     </div>
   );
 }

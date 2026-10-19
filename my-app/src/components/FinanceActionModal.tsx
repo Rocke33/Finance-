@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Wallet, Target, CreditCard } from 'lucide-react';
 import { NewTransactionPayload } from '../types/finance';
 
@@ -10,9 +10,19 @@ interface FinanceActionModalProps {
   onSaveExpense: (tx: NewTransactionPayload) => void;
   onSaveIncome: (amount: number) => void;
   onSaveBudget: (category: string, limit: number) => void;
+  availableCategories?: string[];
 }
 
-const CATEGORIES = ['Food', 'Groceries', 'Transport', 'Utilities', 'Entertainment', 'Shopping'];
+const DEFAULT_CATEGORIES = [
+  'Food',
+  'Transport',
+  'Bills & Utilities',
+  'Shopping',
+  'Health',
+  'Entertainment',
+  'Groceries',
+  'Others',
+];
 
 export const FinanceActionModal: React.FC<FinanceActionModalProps> = ({
   type,
@@ -20,19 +30,31 @@ export const FinanceActionModal: React.FC<FinanceActionModalProps> = ({
   onSaveExpense,
   onSaveIncome,
   onSaveBudget,
+  availableCategories,
 }) => {
+  const categories = availableCategories && availableCategories.length > 0
+    ? availableCategories
+    : DEFAULT_CATEGORIES;
+
   // Income State
   const [income, setIncome] = useState<number | string>('');
 
   // Budget State
-  const [budgetCategory, setBudgetCategory] = useState<string>(CATEGORIES[0]);
+  const [budgetCategory, setBudgetCategory] = useState<string>(categories[0] || 'Food');
   const [budgetLimit, setBudgetLimit] = useState<number | string>('');
 
   // Expense State
   const [merchant, setMerchant] = useState<string>('');
-  const [expenseCategory, setExpenseCategory] = useState<string>(CATEGORIES[0]);
+  const [expenseCategory, setExpenseCategory] = useState<string>(categories[0] || 'Food');
   const [amount, setAmount] = useState<number | string>('');
   const [date, setDate] = useState<string>(new Date().toISOString().split('T')[0]);
+
+  useEffect(() => {
+    if (categories.length > 0) {
+      setBudgetCategory(categories[0]);
+      setExpenseCategory(categories[0]);
+    }
+  }, [availableCategories]);
 
   if (!type) return null;
 
@@ -41,7 +63,7 @@ export const FinanceActionModal: React.FC<FinanceActionModalProps> = ({
 
     if (type === 'income') {
       const val = parseFloat(String(income));
-      if (!isNaN(val) && val > 0) {
+      if (!isNaN(val) && val >= 0) {
         onSaveIncome(val);
         onClose();
       }
@@ -66,12 +88,12 @@ export const FinanceActionModal: React.FC<FinanceActionModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200 relative my-8">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+      <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 relative my-8 animate-in fade-in zoom-in-95 duration-150">
         {/* Modal Header */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-          <div className="flex items-center gap-2">
-            <div className="p-2 rounded-lg bg-indigo-50 text-indigo-600">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2.5 rounded-2xl bg-rose-50 text-[#E5484D]">
               {type === 'income' && <Wallet className="h-5 w-5" />}
               {type === 'budget' && <Target className="h-5 w-5" />}
               {type === 'expense' && <CreditCard className="h-5 w-5" />}
@@ -80,19 +102,19 @@ export const FinanceActionModal: React.FC<FinanceActionModalProps> = ({
               <h3 className="text-base font-bold text-slate-900">
                 {type === 'income' && 'Set Monthly Income'}
                 {type === 'budget' && 'Set Category Budget'}
-                {type === 'expense' && 'Add New Expense'}
+                {type === 'expense' && 'Add Transaction'}
               </h3>
-              <p className="text-xs text-slate-500">
-                {type === 'income' && 'Update total monthly earnings'}
-                {type === 'budget' && 'Allocate limit across 6 core categories'}
-                {type === 'expense' && 'Manual transaction record entry'}
+              <p className="text-xs text-slate-400">
+                {type === 'income' && 'Update total monthly earnings (BDT)'}
+                {type === 'budget' && 'Set spending limits to monitor overspending'}
+                {type === 'expense' && 'Record an expense or payment'}
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+            className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
           >
             <X className="h-5 w-5" />
           </button>
@@ -102,7 +124,7 @@ export const FinanceActionModal: React.FC<FinanceActionModalProps> = ({
         <form onSubmit={handleSubmit} className="mt-5 space-y-4 text-xs">
           {type === 'income' && (
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Monthly Income (BDT)</label>
+              <label className="block font-semibold text-slate-700 mb-1.5">Monthly Income (৳ BDT)</label>
               <input
                 type="number"
                 step="0.01"
@@ -110,7 +132,7 @@ export const FinanceActionModal: React.FC<FinanceActionModalProps> = ({
                 value={income}
                 onChange={(e) => setIncome(e.target.value)}
                 placeholder="e.g. 60000"
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-sm"
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0F382C]/20 text-sm font-medium"
               />
             </div>
           )}
@@ -118,13 +140,13 @@ export const FinanceActionModal: React.FC<FinanceActionModalProps> = ({
           {type === 'budget' && (
             <>
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Select Category</label>
+                <label className="block font-semibold text-slate-700 mb-1.5">Select Category</label>
                 <select
                   value={budgetCategory}
                   onChange={(e) => setBudgetCategory(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-sm"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0F382C]/20 text-sm font-semibold cursor-pointer"
                 >
-                  {CATEGORIES.map((cat) => (
+                  {categories.map((cat) => (
                     <option key={cat} value={cat}>
                       {cat}
                     </option>
@@ -132,7 +154,7 @@ export const FinanceActionModal: React.FC<FinanceActionModalProps> = ({
                 </select>
               </div>
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Monthly Limit (BDT)</label>
+                <label className="block font-semibold text-slate-700 mb-1.5">Monthly Limit (৳ BDT)</label>
                 <input
                   type="number"
                   step="0.01"
@@ -140,7 +162,7 @@ export const FinanceActionModal: React.FC<FinanceActionModalProps> = ({
                   value={budgetLimit}
                   onChange={(e) => setBudgetLimit(e.target.value)}
                   placeholder="e.g. 10000"
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-sm"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0F382C]/20 text-sm font-medium"
                 />
               </div>
             </>
@@ -149,26 +171,26 @@ export const FinanceActionModal: React.FC<FinanceActionModalProps> = ({
           {type === 'expense' && (
             <>
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Merchant / Title</label>
+                <label className="block font-semibold text-slate-700 mb-1.5">Merchant / Expense Title</label>
                 <input
                   type="text"
                   required
                   value={merchant}
                   onChange={(e) => setMerchant(e.target.value)}
-                  placeholder="e.g. Kacchi Bhai, Daraz, Pathao"
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-sm"
+                  placeholder="e.g. Kacchi Bhai, Fuel, Daraz"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0F382C]/20 text-sm font-medium"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Category</label>
+                  <label className="block font-semibold text-slate-700 mb-1.5">Category</label>
                   <select
                     value={expenseCategory}
                     onChange={(e) => setExpenseCategory(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-sm"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0F382C]/20 text-sm font-semibold cursor-pointer"
                   >
-                    {CATEGORIES.map((cat) => (
+                    {categories.map((cat) => (
                       <option key={cat} value={cat}>
                         {cat}
                       </option>
@@ -177,7 +199,7 @@ export const FinanceActionModal: React.FC<FinanceActionModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Amount (BDT)</label>
+                  <label className="block font-semibold text-slate-700 mb-1.5">Amount (৳)</label>
                   <input
                     type="number"
                     step="0.01"
@@ -185,38 +207,38 @@ export const FinanceActionModal: React.FC<FinanceActionModalProps> = ({
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
                     placeholder="e.g. 850"
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-sm"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0F382C]/20 text-sm font-medium"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Date</label>
+                <label className="block font-semibold text-slate-700 mb-1.5">Date</label>
                 <input
                   type="date"
                   required
                   value={date}
                   onChange={(e) => setDate(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-sm"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0F382C]/20 text-sm font-medium"
                 />
               </div>
             </>
           )}
 
           {/* Action Buttons */}
-          <div className="pt-3 flex items-center justify-end gap-2.5">
+          <div className="pt-4 flex items-center justify-end gap-2.5">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-lg font-semibold transition-colors"
+              className="px-4 py-2.5 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl font-semibold transition-colors cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold shadow-xs transition-colors"
+              className="px-5 py-2.5 bg-[#E5484D] hover:bg-[#D63A3F] text-white rounded-xl font-bold shadow-xs transition-colors cursor-pointer"
             >
-              Confirm
+              Confirm & Save
             </button>
           </div>
         </form>

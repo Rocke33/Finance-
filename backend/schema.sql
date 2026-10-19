@@ -84,3 +84,31 @@ CREATE POLICY "Service role full access on transactions"
     TO service_role
     USING (true)
     WITH CHECK (true);
+
+-- 4. CATEGORIES TABLE (User Category Customization)
+CREATE TABLE IF NOT EXISTS public.categories (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'expense', -- 'expense', 'income', 'savings'
+    color TEXT DEFAULT '#E5484D',
+    icon TEXT DEFAULT 'tag',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT unique_user_category_type UNIQUE (user_id, name, type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_categories_user ON public.categories(user_id);
+ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can manage own categories"
+    ON public.categories FOR ALL
+    TO authenticated
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Service role full access on categories"
+    ON public.categories FOR ALL
+    TO service_role
+    USING (true)
+    WITH CHECK (true);
+

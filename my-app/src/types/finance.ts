@@ -51,3 +51,29 @@ export interface NewTransactionPayload {
   date: string;
   receipt_url?: string | null;
 }
+
+export type CategoryType = 'expense' | 'income' | 'savings';
+
+export interface CategoryItem {
+  id: string;
+  name: string;
+  type: CategoryType;
+  color: string;
+  icon: string;
+}
+
+export interface NewCategoryPayload {
+  name: string;
+  type: CategoryType;
+  color?: string;
+  icon?: string;
+}
+
+export interface WalletItem {
+  id: string;
+  name: string;
+  type: 'cash' | 'mfs' | 'bank';
+  balance: number;
+  color?: string;
+  fee?: number;
+}

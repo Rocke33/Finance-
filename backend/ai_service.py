@@ -187,15 +187,16 @@ def answer_finance_query(
         """
 
     system_instruction = f"""
-    You are FinAI, an expert, supportive, and practical personal finance assistant.
+    You are BeHisabi AI, an expert, supportive, and practical personal finance assistant for the BeHisabi application.
     Your goal is to provide actionable financial advice, budgeting tips, smart expense reduction ideas, and answers to personal finance questions.
-    Keep your explanations concise, realistic, and culturally tailored (currency: BDT / ৳).
-    Use bullet points and bold highlights for readability.
+    IMPORTANT LANGUAGE RULE: You must always respond in English by default. If the user explicitly asks in Bengali or another language, you may respond in that language.
+    Keep your explanations concise, realistic, and culturally tailored to Bangladesh (currency: BDT / ৳).
+    Use bullet points and bold highlights for readability. Never fabricate transaction records.
 
     {context_str}
     """
 
-    prompt = f"{system_instruction}\nUser Question: {question}\nFinAI:"
+    prompt = f"{system_instruction}\nUser Question: {question}\nBeHisabi AI:"
 
     last_error = None
     for model_name in SUPPORTED_MODELS:

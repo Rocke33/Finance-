@@ -4,7 +4,8 @@ import {
   AIInsight,
   ReceiptExtraction,
   NewTransactionPayload,
-  BudgetCategory,
+  CategoryItem,
+  NewCategoryPayload,
 } from '../types/finance';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
@@ -16,7 +17,7 @@ export interface UserProfile {
   income: number;
 }
 
-// অথেনটিকেশন হেডার পাওয়ার হেল্পার
+// Authentication headers helper
 const getAuthHeaders = (): HeadersInit => {
   const token = localStorage.getItem('finai_token');
   return {
@@ -24,46 +25,6 @@ const getAuthHeaders = (): HeadersInit => {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 };
-
-// মক ড্যাশবোর্ড সামারি
-const MOCK_SUMMARY: BudgetSummary = {
-  monthly_income: 60000,
-  total_budget: 53000,
-  total_spent: 16452.11,
-  remaining: 36547.89,
-  categories: [
-    { name: 'Food', allocated: 10000, spent: 3402.11, status: 'normal' },
-    { name: 'Groceries', allocated: 15000, spent: 3200, status: 'normal' },
-    { name: 'Transport', allocated: 5000, spent: 350, status: 'normal' },
-    { name: 'Entertainment', allocated: 5000, spent: 1200, status: 'normal' },
-    { name: 'Shopping', allocated: 10000, spent: 4500, status: 'normal' },
-    { name: 'Utilities', allocated: 8000, spent: 3800, status: 'normal' },
-  ],
-};
-
-let mockTransactions: Transaction[] = [
-  { id: '1', merchant: "Sultan's Dine", category: 'Food', amount: 1450, date: '2026-10-14', receipt_url: null },
-  { id: '2', merchant: 'Agora Superstore', category: 'Groceries', amount: 3200, date: '2026-10-12', receipt_url: null },
-  { id: '3', merchant: 'Pathao Rides', category: 'Transport', amount: 350, date: '2026-10-13', receipt_url: null },
-  { id: '4', merchant: 'Star Cineplex', category: 'Entertainment', amount: 1200, date: '2026-10-14', receipt_url: null },
-  { id: '5', merchant: 'Aarong', category: 'Shopping', amount: 4500, date: '2026-10-14', receipt_url: null },
-  { id: '6', merchant: 'Desco Electric Bill', category: 'Utilities', amount: 3800, date: '2026-10-10', receipt_url: null },
-];
-
-const MOCK_INSIGHTS: AIInsight[] = [
-  {
-    id: '1',
-    type: 'alert',
-    message: 'Food expenses are pacing moderately this month.',
-    action: 'Plan weekend dining out intentionally to maintain comfortable margins.',
-  },
-  {
-    id: '2',
-    type: 'suggestion',
-    message: 'Your overall spending is within safe budget limits.',
-    action: 'Consider transferring ৳10,000 to your savings account.',
-  },
-];
 
 // --- AUTH APIS ---
 
@@ -112,50 +73,34 @@ export async function checkBackendHealth(): Promise<boolean> {
   }
 }
 
-export async function getDashboardSummary(useDemo = false): Promise<{ data: BudgetSummary }> {
-  if (useDemo) return { data: MOCK_SUMMARY };
-  try {
-    const res = await fetch(`${API_BASE_URL}/api/dashboard`, {
-      headers: getAuthHeaders(),
-    });
-    if (!res.ok) throw new Error('Failed to fetch dashboard summary');
-    const data = await res.json();
-    return { data };
-  } catch {
-    return { data: MOCK_SUMMARY };
+export async function getDashboardSummary(): Promise<{ data: BudgetSummary }> {
+  const res = await fetch(`${API_BASE_URL}/api/dashboard`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to fetch dashboard summary');
   }
+  const data = await res.json();
+  return { data };
 }
 
-export async function getTransactions(category?: string, useDemo = false): Promise<{ data: Transaction[] }> {
-  if (useDemo) return { data: mockTransactions };
-  try {
-    const url = new URL(`${API_BASE_URL}/api/transactions`);
-    if (category) url.searchParams.append('category', category);
-    const res = await fetch(url.toString(), {
-      headers: getAuthHeaders(),
-    });
-    if (!res.ok) throw new Error('Failed to fetch transactions');
-    const data = await res.json();
-    return { data };
-  } catch {
-    return { data: mockTransactions };
+export async function getTransactions(category?: string): Promise<{ data: Transaction[] }> {
+  const url = new URL(`${API_BASE_URL}/api/transactions`);
+  if (category && category !== 'All') url.searchParams.append('category', category);
+  
+  const res = await fetch(url.toString(), {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to fetch transactions');
   }
+  const data = await res.json();
+  return { data };
 }
 
-export async function createTransaction(payload: NewTransactionPayload, useDemo = false): Promise<Transaction> {
-  if (useDemo) {
-    const created: Transaction = {
-      id: `tx-${Date.now()}`,
-      merchant: payload.merchant,
-      category: payload.category,
-      amount: payload.amount,
-      date: payload.date,
-      receipt_url: payload.receipt_url ?? null,
-    };
-    mockTransactions = [created, ...mockTransactions];
-    return created;
-  }
-
+export async function createTransaction(payload: NewTransactionPayload): Promise<Transaction> {
   const res = await fetch(`${API_BASE_URL}/api/transactions`, {
     method: 'POST',
     headers: getAuthHeaders(),
@@ -163,18 +108,25 @@ export async function createTransaction(payload: NewTransactionPayload, useDemo 
   });
 
   if (!res.ok) {
-    throw new Error('Failed to save transaction to database');
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to save transaction to database');
   }
   return await res.json();
 }
 
-export async function updateUserIncome(income: number, useDemo = false): Promise<{ monthly_income: number }> {
-  if (useDemo) {
-    MOCK_SUMMARY.monthly_income = income;
-    MOCK_SUMMARY.remaining = income - MOCK_SUMMARY.total_spent;
-    return { monthly_income: income };
-  }
+export async function deleteTransactionApi(transactionId: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/api/transactions/${transactionId}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
 
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to delete transaction');
+  }
+}
+
+export async function updateUserIncome(income: number): Promise<{ monthly_income: number }> {
   const res = await fetch(`${API_BASE_URL}/api/user/income`, {
     method: 'PUT',
     headers: getAuthHeaders(),
@@ -182,18 +134,13 @@ export async function updateUserIncome(income: number, useDemo = false): Promise
   });
 
   if (!res.ok) {
-    throw new Error('Failed to update income');
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to update income');
   }
   return await res.json();
 }
 
-export async function setCategoryBudget(category: string, monthly_limit: number, useDemo = false): Promise<{ category: string; allocated: number }> {
-  if (useDemo) {
-    const cat = MOCK_SUMMARY.categories.find((c) => c.name.toLowerCase() === category.toLowerCase());
-    if (cat) cat.allocated = monthly_limit;
-    return { category, allocated: monthly_limit };
-  }
-
+export async function setCategoryBudget(category: string, monthly_limit: number): Promise<{ category: string; allocated: number }> {
   const res = await fetch(`${API_BASE_URL}/api/budgets`, {
     method: 'POST',
     headers: getAuthHeaders(),
@@ -201,23 +148,61 @@ export async function setCategoryBudget(category: string, monthly_limit: number,
   });
 
   if (!res.ok) {
-    throw new Error('Failed to set budget');
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to set budget');
   }
   return await res.json();
 }
 
-export async function getAIInsights(useDemo = false): Promise<{ data: AIInsight[] }> {
-  if (useDemo) return { data: MOCK_INSIGHTS };
-  try {
-    const res = await fetch(`${API_BASE_URL}/api/insights`, {
-      headers: getAuthHeaders(),
-    });
-    if (!res.ok) throw new Error('Failed to fetch AI insights');
-    const data = await res.json();
-    return { data: data.insights || [] };
-  } catch {
-    return { data: MOCK_INSIGHTS };
+// --- CATEGORY MANAGEMENT APIS ---
+
+export async function getCategoriesApi(): Promise<CategoryItem[]> {
+  const res = await fetch(`${API_BASE_URL}/api/categories`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to fetch categories');
   }
+  return await res.json();
+}
+
+export async function createCategoryApi(payload: NewCategoryPayload): Promise<CategoryItem> {
+  const res = await fetch(`${API_BASE_URL}/api/categories`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to create category');
+  }
+  return await res.json();
+}
+
+export async function deleteCategoryApi(categoryId: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/api/categories/${categoryId}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to delete category');
+  }
+}
+
+// --- AI INSIGHTS & RECEIPT APIS ---
+
+export async function getAIInsights(): Promise<{ data: AIInsight[] }> {
+  const res = await fetch(`${API_BASE_URL}/api/insights`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to fetch AI insights');
+  }
+  const data = await res.json();
+  return { data: data.insights || [] };
 }
 
 export async function uploadReceiptImage(file: File): Promise<ReceiptExtraction> {
@@ -241,11 +226,7 @@ export async function uploadReceiptImage(file: File): Promise<ReceiptExtraction>
   return await res.json();
 }
 
-export async function sendChatMessage(message: string, useDemo = false): Promise<string> {
-  if (useDemo) {
-    return 'Based on your current budget, keeping daily discretionary expenses under ৳500 will help preserve your savings goals this month!';
-  }
-
+export async function sendChatMessage(message: string): Promise<string> {
   const res = await fetch(`${API_BASE_URL}/api/chat`, {
     method: 'POST',
     headers: getAuthHeaders(),

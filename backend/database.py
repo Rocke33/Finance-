@@ -110,29 +110,44 @@ class TransactionDB(Base):
 
     user = relationship("UserDB", back_populates="transactions")
 
+class CategoryDB(Base):
+    __tablename__ = "categories"
+
+    id = Column(UUIDString(), primary_key=True, default=generate_uuid)
+    user_id = Column(UUIDString(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(100), nullable=False)
+    type = Column(String(50), nullable=False, default="expense")
+    color = Column(String(50), nullable=True, default="#E5484D")
+    icon = Column(String(50), nullable=True, default="tag")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 # --- INITIALIZATION & SEEDING ---
 DEFAULT_DEMO_USER_ID = "00000000-0000-0000-0000-000000000001"
 
 def init_db():
-    Base.metadata.create_all(bind=engine)
-    user_columns = {column["name"] for column in inspect(engine).get_columns("users")}
-    missing_auth_columns = {
-        "hashed_password": "VARCHAR(255)",
-        "password_hash": "VARCHAR(255)",
-    }
-    missing_auth_columns = {
-        name: column_type
-        for name, column_type in missing_auth_columns.items()
-        if name not in user_columns
-    }
-    if missing_auth_columns:
-        with engine.begin() as connection:
-            for name, column_type in missing_auth_columns.items():
-                connection.exec_driver_sql(
-                    f"ALTER TABLE users ADD COLUMN {name} {column_type}"
-                )
-    with SessionLocal() as db:
-        seed_data_if_empty(db)
+    if DATABASE_URL.startswith("sqlite"):
+        Base.metadata.create_all(bind=engine)
+    try:
+        user_columns = {column["name"] for column in inspect(engine).get_columns("users")}
+        missing_auth_columns = {
+            "hashed_password": "VARCHAR(255)",
+            "password_hash": "VARCHAR(255)",
+        }
+        missing_auth_columns = {
+            name: column_type
+            for name, column_type in missing_auth_columns.items()
+            if name not in user_columns
+        }
+        if missing_auth_columns:
+            with engine.begin() as connection:
+                for name, column_type in missing_auth_columns.items():
+                    connection.exec_driver_sql(
+                        f"ALTER TABLE users ADD COLUMN {name} {column_type}"
+                    )
+    except Exception:
+        pass
+    # No demo seed on startup: preserve genuine user isolation
+
 
 def seed_data_if_empty(db: Session):
     user = db.query(UserDB).filter(UserDB.id == DEFAULT_DEMO_USER_ID).first()
@@ -304,6 +319,185 @@ def create_transaction_repo(
     db.refresh(db_tx)
     return db_tx
 
+def delete_transaction_repo(
+    db: Session,
+    user_id: str,
+    transaction_id: str
+) -> bool:
+    tx = db.query(TransactionDB).filter(
+        TransactionDB.id == transaction_id,
+        TransactionDB.user_id == user_id
+    ).first()
+    if not tx:
+        return False
+    db.delete(tx)
+    db.commit()
+    return True
+
+# --- CATEGORY REPOSITORY & FALLBACK SYSTEM ---
+
+DEFAULT_CATEGORIES = [
+    # Expense Categories
+    {"id": "cat_exp_1", "name": "Food", "type": "expense", "color": "#F97316", "icon": "Utensils"},
+    {"id": "cat_exp_2", "name": "Transport", "type": "expense", "color": "#3B82F6", "icon": "Car"},
+    {"id": "cat_exp_3", "name": "Bills & Utilities", "type": "expense", "color": "#8B5CF6", "icon": "Receipt"},
+    {"id": "cat_exp_4", "name": "Shopping", "type": "expense", "color": "#EC4899", "icon": "ShoppingBag"},
+    {"id": "cat_exp_5", "name": "Health", "type": "expense", "color": "#EF4444", "icon": "HeartPulse"},
+    {"id": "cat_exp_6", "name": "Entertainment", "type": "expense", "color": "#10B981", "icon": "Film"},
+    {"id": "cat_exp_7", "name": "Groceries", "type": "expense", "color": "#14B8A6", "icon": "ShoppingCart"},
+    # Income Categories
+    {"id": "cat_inc_1", "name": "Salary", "type": "income", "color": "#10B981", "icon": "Briefcase"},
+    {"id": "cat_inc_2", "name": "Business", "type": "income", "color": "#3B82F6", "icon": "TrendingUp"},
+    {"id": "cat_inc_3", "name": "Freelance", "type": "income", "color": "#8B5CF6", "icon": "Laptop"},
+    {"id": "cat_inc_4", "name": "Investment", "type": "income", "color": "#F59E0B", "icon": "PieChart"},
+    {"id": "cat_inc_5", "name": "Allowance", "type": "income", "color": "#06B6D4", "icon": "Wallet"},
+    {"id": "cat_inc_6", "name": "Gift", "type": "income", "color": "#EC4899", "icon": "Gift"},
+    {"id": "cat_inc_7", "name": "Other Income", "type": "income", "color": "#64748B", "icon": "PlusCircle"},
+    # Savings Categories
+    {"id": "cat_sav_1", "name": "Emergency Fund", "type": "savings", "color": "#10B981", "icon": "ShieldCheck"},
+    {"id": "cat_sav_2", "name": "Investment", "type": "savings", "color": "#6366F1", "icon": "PiggyBank"},
+    {"id": "cat_sav_3", "name": "General Savings", "type": "savings", "color": "#0EA5E9", "icon": "Vault"},
+]
+
+_has_cat_table = None
+_in_memory_user_categories = {}
+
+def has_categories_table() -> bool:
+    global _has_cat_table
+    if _has_cat_table is not None:
+        return _has_cat_table
+    try:
+        insp = inspect(engine)
+        if engine.dialect.name == "postgresql":
+            _has_cat_table = insp.has_table("categories", schema="public")
+        else:
+            _has_cat_table = insp.has_table("categories")
+    except Exception:
+        _has_cat_table = False
+    return bool(_has_cat_table)
+
+def get_categories_repo(db: Session, user_id: str) -> List[schemas.CategoryResponse]:
+    categories: List[schemas.CategoryResponse] = []
+    
+    if has_categories_table():
+        try:
+            records = db.query(CategoryDB).filter(CategoryDB.user_id == user_id).all()
+            for r in records:
+                categories.append(schemas.CategoryResponse(
+                    id=str(r.id),
+                    name=r.name,
+                    type=r.type,
+                    color=r.color or "#E5484D",
+                    icon=r.icon or "tag"
+                ))
+        except Exception:
+            pass
+
+    user_custom = _in_memory_user_categories.get(user_id, [])
+    seen_names = {c.name.lower() for c in categories}
+    for custom in user_custom:
+        if custom["name"].lower() not in seen_names:
+            categories.append(schemas.CategoryResponse(
+                id=custom["id"],
+                name=custom["name"],
+                type=custom["type"],
+                color=custom.get("color", "#E5484D"),
+                icon=custom.get("icon", "tag")
+            ))
+            seen_names.add(custom["name"].lower())
+
+    for d in DEFAULT_CATEGORIES:
+        if d["name"].lower() not in seen_names:
+            categories.append(schemas.CategoryResponse(
+                id=d["id"],
+                name=d["name"],
+                type=d["type"],
+                color=d["color"],
+                icon=d["icon"]
+            ))
+            seen_names.add(d["name"].lower())
+
+    return categories
+
+def create_category_repo(
+    db: Session,
+    user_id: str,
+    name: str,
+    cat_type: str = "expense",
+    color: str = "#E5484D",
+    icon: str = "tag"
+) -> schemas.CategoryResponse:
+    clean_name = name.strip()
+    cat_id = str(uuid.uuid4())
+    
+    if has_categories_table():
+        try:
+            new_cat = CategoryDB(
+                id=cat_id,
+                user_id=user_id,
+                name=clean_name,
+                type=cat_type,
+                color=color,
+                icon=icon
+            )
+            db.add(new_cat)
+            db.commit()
+            db.refresh(new_cat)
+            return schemas.CategoryResponse(
+                id=str(new_cat.id),
+                name=new_cat.name,
+                type=new_cat.type,
+                color=new_cat.color or "#E5484D",
+                icon=new_cat.icon or "tag"
+            )
+        except Exception:
+            db.rollback()
+
+    if user_id not in _in_memory_user_categories:
+        _in_memory_user_categories[user_id] = []
+    item = {
+        "id": cat_id,
+        "name": clean_name,
+        "type": cat_type,
+        "color": color,
+        "icon": icon
+    }
+    _in_memory_user_categories[user_id].append(item)
+    return schemas.CategoryResponse(
+        id=cat_id,
+        name=clean_name,
+        type=cat_type,
+        color=color,
+        icon=icon
+    )
+
+def delete_category_repo(db: Session, user_id: str, category_id_or_name: str) -> bool:
+    clean_id = category_id_or_name.strip().lower()
+    
+    if has_categories_table():
+        try:
+            record = db.query(CategoryDB).filter(
+                CategoryDB.user_id == user_id,
+                (CategoryDB.id == category_id_or_name) | (func.lower(CategoryDB.name) == clean_id)
+            ).first()
+            if record:
+                db.delete(record)
+                db.commit()
+                return True
+        except Exception:
+            db.rollback()
+
+    if user_id in _in_memory_user_categories:
+        orig_len = len(_in_memory_user_categories[user_id])
+        _in_memory_user_categories[user_id] = [
+            c for c in _in_memory_user_categories[user_id]
+            if c["id"] != category_id_or_name and c["name"].lower() != clean_id
+        ]
+        if len(_in_memory_user_categories[user_id]) < orig_len:
+            return True
+
+    return True
+
 def update_income_repo(db: Session, user_id: str, income: float) -> UserDB:
     user = db.query(UserDB).filter(UserDB.id == user_id).first()
     if user is None:
@@ -391,7 +585,12 @@ def calculate_dashboard_summary_repo(
                 status="danger"
             ))
 
-    remaining = float(total_budget - total_spent)
+    # If total_budget is set, remaining is relative to total_budget.
+    # Otherwise, remaining reflects remaining from monthly income.
+    if total_budget > 0:
+        remaining = float(total_budget - total_spent)
+    else:
+        remaining = float(Decimal(str(round(monthly_income, 2))) - total_spent)
 
     return schemas.DashboardSummary(
         monthly_income=monthly_income,
@@ -408,6 +607,24 @@ def generate_insights_repo(
     summary = calculate_dashboard_summary_repo(db, user_id)
     insights: List[schemas.AIInsight] = []
     ins_counter = 1
+
+    # Clean state check for new users
+    if summary.total_budget == 0 and summary.total_spent == 0:
+        insights.append(schemas.AIInsight(
+            id=f"ins_{ins_counter}",
+            type="suggestion",
+            message="Welcome to AIFinance! You have no recorded expenses or budgets yet.",
+            action="Start by adding your first expense or setting category budget limits to unlock automated AI insights."
+        ))
+        ins_counter += 1
+        if summary.monthly_income == 0:
+            insights.append(schemas.AIInsight(
+                id=f"ins_{ins_counter}",
+                type="suggestion",
+                message="Monthly income has not been set yet.",
+                action="Configure your expected earnings to accurately measure your savings rate and financial health."
+            ))
+        return insights
 
     if summary.total_budget > 0:
         overall_ratio = summary.total_spent / summary.total_budget
@@ -433,7 +650,7 @@ def generate_insights_repo(
             insights.append(schemas.AIInsight(
                 id=f"ins_{ins_counter}",
                 type="alert",
-                message=f"{cat.name} budget exceeded: Spent BDT {cat.spent:,.2f} of allocated BDT {cat.allocated:,.2f}.",
+                message=f"{cat.name} budget exceeded: Spent ৳{cat.spent:,.2f} of allocated ৳{cat.allocated:,.2f}.",
                 action=f"Freeze new expenses in {cat.name} or reallocate funds from lower-priority categories."
             ))
             ins_counter += 1
@@ -451,7 +668,7 @@ def generate_insights_repo(
             id=f"ins_{ins_counter}",
             type="suggestion",
             message="Your expenses are well within all category limits so far this month.",
-            action=f"Consider allocating remaining balance (BDT {summary.remaining:,.2f}) into high-yield savings or emergency fund."
+            action=f"Consider allocating remaining balance (৳{summary.remaining:,.2f}) into high-yield savings or emergency fund."
         ))
 
     return insights
