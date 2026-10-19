@@ -10,11 +10,18 @@ import schemas
 load_dotenv()
 logger = logging.getLogger("ai_service")
 
-# Current supported Gemini models
-SUPPORTED_MODELS = [
+# Dedicated model tiers for performance & accuracy
+RECEIPT_MODELS = [
     "gemini-3.8-flash",
     "gemini-3.5-flash-lite",
 ]
+
+CHAT_MODELS = [
+    "gemini-3.5-flash-lite",
+    "gemini-3.8-flash",
+]
+
+SUPPORTED_MODELS = CHAT_MODELS
 
 _genai_client = None
 
@@ -89,7 +96,7 @@ def process_receipt_image(image_path: str) -> schemas.ReceiptExtraction:
     response = None
     last_error = None
 
-    for model_name in SUPPORTED_MODELS:
+    for model_name in RECEIPT_MODELS:
         try:
             response = client.models.generate_content(
                 model=model_name,
@@ -173,17 +180,28 @@ def answer_finance_query(
         budget = user_context.get("total_budget", 0.0)
         remaining = user_context.get("remaining", 0.0)
         categories = user_context.get("categories", [])
+        total_balance = user_context.get("total_balance")
+        cash_balance = user_context.get("cash_balance")
+        online_balance = user_context.get("online_balance")
 
         cat_breakdown = ", ".join(
             [f"{c.get('name')}: Spent ৳{c.get('spent')} of ৳{c.get('allocated')}" for c in categories]
         )
+        
+        balance_info = ""
+        if total_balance is not None:
+            balance_info = f"""
+        - Current Total Wallet Balance: BDT {total_balance:,.2f}
+        - Cash Wallet Balance: BDT {cash_balance:,.2f}
+        - Online Payment Balance: BDT {online_balance:,.2f}"""
+
         context_str = f"""
-        User Current Financial Overview:
-        - Monthly Income: BDT {income}
-        - Total Budget Allocated: BDT {budget}
-        - Total Spent This Month: BDT {spent}
-        - Remaining Funds: BDT {remaining}
-        - Category Spending: {cat_breakdown}
+        User Current Verified Financial Overview:{balance_info}
+        - Monthly Income: BDT {income:,.2f}
+        - Total Budget Allocated: BDT {budget:,.2f}
+        - Total Spent This Month: BDT {spent:,.2f}
+        - Remaining Budget Capacity: BDT {remaining:,.2f}
+        - Category Spending Breakdown: {cat_breakdown}
         """
 
     system_instruction = f"""
@@ -191,7 +209,8 @@ def answer_finance_query(
     Your goal is to provide actionable financial advice, budgeting tips, smart expense reduction ideas, and answers to personal finance questions.
     IMPORTANT LANGUAGE RULE: You must always respond in English by default. If the user explicitly asks in Bengali or another language, you may respond in that language.
     Keep your explanations concise, realistic, and culturally tailored to Bangladesh (currency: BDT / ৳).
-    Use bullet points and bold highlights for readability. Never fabricate transaction records.
+    Use bullet points and bold highlights for readability. Never fabricate transaction records, balances, or budgets.
+    Only refer to actual financial figures provided in the verified overview.
 
     {context_str}
     """
@@ -199,7 +218,7 @@ def answer_finance_query(
     prompt = f"{system_instruction}\nUser Question: {question}\nBeHisabi AI:"
 
     last_error = None
-    for model_name in SUPPORTED_MODELS:
+    for model_name in CHAT_MODELS:
         try:
             response = client.models.generate_content(
                 model=model_name,

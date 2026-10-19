@@ -11,6 +11,7 @@ class TransactionBase(BaseModel):
     amount: float = Field(..., gt=0)
     date: str = Field(..., description="ISO formatted date YYYY-MM-DD")
     receipt_url: Optional[str] = None
+    payment_source: Literal["cash", "online"] = Field(default="cash", description="Wallet source for expense: cash or online")
 
     @field_validator('amount')
     @classmethod
@@ -39,6 +40,9 @@ class DashboardSummary(BaseModel):
     total_budget: float
     total_spent: float
     remaining: float
+    total_balance: Optional[float] = None
+    cash_balance: Optional[float] = None
+    online_balance: Optional[float] = None
     categories: List[BudgetCategory]
 
 # --- AI INSIGHT SCHEMAS ---
@@ -111,4 +115,30 @@ class CategoryResponse(BaseModel):
     icon: str
 
     class Config:
-        from_attributes = True
+        from_attributes = True
+
+# --- WALLET SCHEMAS ---
+
+class WalletResponse(BaseModel):
+    cash_balance: float
+    online_balance: float
+    total_balance: float
+
+class WalletSetRequest(BaseModel):
+    balance: float = Field(..., ge=0, description="Wallet balance amount, must be >= 0")
+
+    @field_validator('balance')
+    @classmethod
+    def validate_balance(cls, v):
+        return round(float(v), 2)
+
+class WalletTransferRequest(BaseModel):
+    source: Literal["cash", "online"] = Field(..., description="Source wallet")
+    destination: Literal["cash", "online"] = Field(..., description="Destination wallet")
+    amount: float = Field(..., gt=0, description="Transfer amount, must be > 0")
+
+    @field_validator('amount')
+    @classmethod
+    def validate_amount(cls, v):
+        return round(float(v), 2)
+

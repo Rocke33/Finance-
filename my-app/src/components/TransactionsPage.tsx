@@ -318,10 +318,24 @@ export const TransactionsPage: React.FC<TransactionsPageProps> = ({
                     <span className="text-sm font-bold text-slate-900 truncate block">
                       {tx.merchant}
                     </span>
-                    <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-500">
+                    <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-500 flex-wrap">
                       <span className="font-medium truncate">{tx.category}</span>
                       <span>•</span>
                       <span className="font-mono text-slate-400">{tx.date}</span>
+                      {tx.payment_source && (
+                        <>
+                          <span>•</span>
+                          <span
+                            className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${
+                              tx.payment_source === 'cash'
+                                ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                                : 'bg-blue-50 text-blue-800 border border-blue-200'
+                            }`}
+                          >
+                            {tx.payment_source === 'cash' ? '💵 Cash' : '💳 Online'}
+                          </span>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>

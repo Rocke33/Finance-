@@ -66,6 +66,7 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
 
         {/* 5. Settings */}
         <button
+          id="nav-settings-mobile"
           type="button"
           onClick={() => setCurrentTab('settings')}
           className={`flex flex-col items-center gap-0.5 p-1 transition-colors cursor-pointer ${

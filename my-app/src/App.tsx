@@ -1,13 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Menu,
   Receipt,
   RefreshCw,
   AlertCircle,
   Plus,
-  Bell,
-  Settings as SettingsIcon,
-  CheckCircle,
+  ArrowLeft,
 } from 'lucide-react';
 
 import {
@@ -17,6 +15,7 @@ import {
   NewTransactionPayload,
   CategoryItem,
   CategoryType,
+  WalletsState,
 } from './types/finance';
 
 import {
@@ -31,6 +30,7 @@ import {
   getCategoriesApi,
   createCategoryApi,
   deleteCategoryApi,
+  getWalletsApi,
   UserProfile,
 } from './services/api';
 
@@ -66,7 +66,21 @@ export default function App() {
     }
   });
 
-  const [currentTab, setCurrentTab] = useState<string>('dashboard');
+  // History & Route State
+  const [currentTab, setCurrentTab] = useState<string>(() => {
+    try {
+      const paramTab = new URLSearchParams(window.location.search).get('tab');
+      return paramTab || 'dashboard';
+    } catch {
+      return 'dashboard';
+    }
+  });
+  const [historyIndex, setHistoryIndex] = useState<number>(0);
+
+  // Scroll Restoration Management
+  const scrollMapRef = useRef<Record<string, number>>({});
+  const navigationTypeRef = useRef<'INITIAL' | 'PUSH' | 'POP' | 'IDLE'>('INITIAL');
+
   const [isSidebarOpenMobile, setIsSidebarOpenMobile] = useState<boolean>(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState<boolean>(false);
   const [activeModal, setActiveModal] = useState<ActionModalType>(null);
@@ -74,12 +88,98 @@ export default function App() {
 
   const [summary, setSummary] = useState<BudgetSummary | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [wallets, setWallets] = useState<WalletsState | null>(null);
   const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [insights, setInsights] = useState<AIInsight[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [backendOnline, setBackendOnline] = useState<boolean>(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Browser History & PopState Sync
+  useEffect(() => {
+    if ('scrollRestoration' in window.history) {
+      window.history.scrollRestoration = 'manual';
+    }
+
+    if (!window.history.state || typeof window.history.state.index !== 'number') {
+      const initialTab = new URLSearchParams(window.location.search).get('tab') || 'dashboard';
+      window.history.replaceState(
+        { tab: initialTab, index: 0 },
+        '',
+        window.location.pathname + (initialTab !== 'dashboard' ? `?tab=${initialTab}` : '')
+      );
+      setHistoryIndex(0);
+    } else {
+      setHistoryIndex(window.history.state.index);
+    }
+
+    const handlePopState = (e: PopStateEvent) => {
+      // Record current scroll position before tab switch
+      const currentScrollY = window.scrollY || document.documentElement.scrollTop;
+      scrollMapRef.current[currentTab] = currentScrollY;
+
+      const targetTab = e.state?.tab || new URLSearchParams(window.location.search).get('tab') || 'dashboard';
+      const targetIndex = typeof e.state?.index === 'number' ? e.state.index : 0;
+      setHistoryIndex(targetIndex);
+
+      navigationTypeRef.current = 'POP';
+      setCurrentTab(targetTab);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [currentTab]);
+
+  // Tab navigation with PUSH history and instant top scroll
+  const navigateToTab = useCallback((newTab: string) => {
+    if (newTab === currentTab) return;
+
+    // 1. Record departing tab vertical scroll position
+    const currentScrollY = window.scrollY || document.documentElement.scrollTop;
+    scrollMapRef.current[currentTab] = currentScrollY;
+
+    // 2. Push state to browser history
+    const nextIndex = (window.history.state?.index ?? 0) + 1;
+    window.history.pushState(
+      { tab: newTab, index: nextIndex },
+      '',
+      window.location.pathname + (newTab !== 'dashboard' ? `?tab=${newTab}` : '')
+    );
+    setHistoryIndex(nextIndex);
+
+    // 3. Mark navigation type as PUSH
+    navigationTypeRef.current = 'PUSH';
+    setCurrentTab(newTab);
+
+    // 4. Instantly start new page at top
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
+  }, [currentTab]);
+
+  // In-app Back button: returns to previous page, or dashboard fallback if opened directly
+  const handleInAppBack = useCallback(() => {
+    const currentIndex = window.history.state?.index ?? historyIndex;
+    if (currentIndex > 0) {
+      window.history.back();
+    } else {
+      navigateToTab('dashboard');
+    }
+  }, [historyIndex, navigateToTab]);
+
+  // Scroll Restoration on POP when content finishes rendering
+  useEffect(() => {
+    if (navigationTypeRef.current === 'POP' && !isLoading) {
+      const targetY = scrollMapRef.current[currentTab] ?? 0;
+      const raf = requestAnimationFrame(() => {
+        window.scrollTo({ top: targetY, left: 0, behavior: 'instant' as ScrollBehavior });
+        navigationTypeRef.current = 'IDLE';
+      });
+      return () => cancelAnimationFrame(raf);
+    } else if (navigationTypeRef.current === 'PUSH') {
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
+      navigationTypeRef.current = 'IDLE';
+    }
+  }, [currentTab, isLoading]);
 
   const handleAuthSuccess = (user: UserProfile, token: string) => {
     localStorage.setItem('finai_token', token);
@@ -93,6 +193,7 @@ export default function App() {
     setCurrentUser(null);
     setSummary(null);
     setTransactions([]);
+    setWallets(null);
     setCategories([]);
     setInsights([]);
   };
@@ -107,17 +208,21 @@ export default function App() {
       const online = await checkBackendHealth();
       setBackendOnline(online);
 
-      const [summaryRes, txsRes, insightsRes, catRes] = await Promise.all([
+      const [summaryRes, txsRes, insightsRes, catRes, walletsRes] = await Promise.all([
         getDashboardSummary(),
         getTransactions(),
         getAIInsights(),
         getCategoriesApi().catch(() => []),
+        getWalletsApi().catch(() => null),
       ]);
 
       setSummary(summaryRes.data);
       setTransactions(txsRes.data);
       setInsights(insightsRes.data);
       setCategories(catRes);
+      if (walletsRes) {
+        setWallets(walletsRes);
+      }
     } catch (err: any) {
       console.error('Failed to load user financial data:', err);
       if (err.message && (err.message.includes('401') || err.message.includes('validate credentials'))) {
@@ -210,13 +315,16 @@ export default function App() {
   }
 
   const categoryNamesList = categories.map((c) => c.name);
+  const effectiveTotalBalance = wallets
+    ? wallets.total_balance
+    : (summary?.total_balance ?? Math.max(0, (summary?.monthly_income ?? 0) - (summary?.total_spent ?? 0)));
 
   return (
     <div className="min-h-screen bg-[#F4F5F7] flex text-slate-800 antialiased selection:bg-[#E5484D] selection:text-white">
       {/* Sidebar Navigation (Desktop & Mobile Drawer) */}
       <Sidebar
         currentTab={currentTab}
-        setCurrentTab={setCurrentTab}
+        setCurrentTab={navigateToTab}
         isOpenMobile={isSidebarOpenMobile}
         setIsOpenMobile={setIsSidebarOpenMobile}
         onOpenUpload={() => setIsUploadModalOpen(true)}
@@ -230,14 +338,28 @@ export default function App() {
         {/* Top Header Bar */}
         <header className="sticky top-0 z-30 h-16 bg-white/90 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-6 flex items-center justify-between shadow-2xs">
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setIsSidebarOpenMobile(true)}
-              className="p-2 -ml-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 lg:hidden cursor-pointer"
-              aria-label="Open menu"
-            >
-              <Menu className="h-5 w-5" />
-            </button>
+            {/* In-App Back Button or Mobile Menu Button */}
+            {currentTab !== 'dashboard' ? (
+              <button
+                type="button"
+                onClick={handleInAppBack}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 -ml-2 rounded-xl text-slate-700 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer text-xs font-bold border border-slate-200 bg-white shadow-2xs"
+                title="Back to previous page"
+                aria-label="Back to previous page"
+              >
+                <ArrowLeft className="h-4 w-4 text-[#E5484D]" />
+                <span>Back</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsSidebarOpenMobile(true)}
+                className="p-2 -ml-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 lg:hidden cursor-pointer"
+                aria-label="Open menu"
+              >
+                <Menu className="h-5 w-5" />
+              </button>
+            )}
 
             {/* Logo on Mobile */}
             <div className="flex items-center gap-2 lg:hidden">
@@ -344,16 +466,21 @@ export default function App() {
                     summary={summary}
                     userName={currentUser.name}
                     onEditIncome={() => setActiveModal('income')}
+                    totalBalance={effectiveTotalBalance}
                   />
 
-                  {/* My Wallets Carousel */}
-                  <WalletsCarousel totalBalance={Math.max(0, summary.monthly_income - summary.total_spent)} />
+                  {/* My Wallets (Exactly 2 Fixed Wallets: Cash & Online) */}
+                  <WalletsCarousel
+                    wallets={wallets}
+                    onWalletsUpdated={() => loadData(true)}
+                    totalBalance={effectiveTotalBalance}
+                  />
 
                   {/* BeHisabi AI Section */}
                   <BeHisabiAISection
                     onOpenAdvisor={() => setIsAdvisorChatOpen(true)}
                     onOpenReceiptScan={() => setIsUploadModalOpen(true)}
-                    onOpenSmartBudget={() => setCurrentTab('budgets')}
+                    onOpenSmartBudget={() => navigateToTab('budgets')}
                   />
 
                   {/* Daily Spend Trend Chart */}
@@ -421,7 +548,7 @@ export default function App() {
               {currentTab === 'settings' && (
                 <SettingsView
                   currentUser={currentUser}
-                  onNavigateTab={(tab) => setCurrentTab(tab)}
+                  onNavigateTab={(tab) => navigateToTab(tab)}
                   onLogout={handleLogout}
                 />
               )}
@@ -433,7 +560,7 @@ export default function App() {
       {/* Mobile Bottom Navigation Bar with Floating Red '+' Action Button */}
       <BottomNavBar
         currentTab={currentTab}
-        setCurrentTab={setCurrentTab}
+        setCurrentTab={navigateToTab}
         onOpenQuickAction={() => setActiveModal('expense')}
       />
 
@@ -442,6 +569,7 @@ export default function App() {
         isOpen={isUploadModalOpen}
         onClose={() => setIsUploadModalOpen(false)}
         onTransactionSaved={handleTransactionSaved}
+        wallets={wallets}
       />
 
       {/* Finance Action Modal (Expense / Income / Budget) */}
@@ -452,11 +580,12 @@ export default function App() {
         onSaveIncome={handleSaveIncome}
         onSaveBudget={handleSaveBudget}
         availableCategories={categoryNamesList}
+        wallets={wallets}
       />
 
-      {/* BeHisabi AI Chat Advisor Widget (Defaults to English) */}
+      {/* BeHisabi AI Chat Advisor Widget (Draggable, English Default, Real Wallet Context) */}
       <ChatWidget
-        isOpenExternal={isAdvisorChatOpen ? true : undefined}
+        isOpenExternal={isAdvisorChatOpen}
         onCloseExternal={() => setIsAdvisorChatOpen(false)}
       />
     </div>

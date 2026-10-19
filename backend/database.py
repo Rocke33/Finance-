@@ -84,6 +84,7 @@ class UserDB(Base):
 
     budgets = relationship("BudgetDB", back_populates="user", cascade="all, delete-orphan")
     transactions = relationship("TransactionDB", back_populates="user", cascade="all, delete-orphan")
+    wallets = relationship("WalletDB", back_populates="user", cascade="all, delete-orphan")
 
 class BudgetDB(Base):
     __tablename__ = "budgets"
@@ -95,6 +96,20 @@ class BudgetDB(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("UserDB", back_populates="budgets")
+
+def _check_payment_source_col() -> bool:
+    try:
+        insp = inspect(engine)
+        if engine.dialect.name == "postgresql":
+            cols = {c["name"] for c in insp.get_columns("transactions", schema="public")}
+        else:
+            cols = {c["name"] for c in insp.get_columns("transactions")}
+        return "payment_source" in cols
+    except Exception:
+        return False
+
+_HAS_PAYMENT_SOURCE_COL = _check_payment_source_col()
+_in_memory_tx_payment_sources = {}
 
 class TransactionDB(Base):
     __tablename__ = "transactions"
@@ -108,7 +123,30 @@ class TransactionDB(Base):
     receipt_url = Column(String(500), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    if _HAS_PAYMENT_SOURCE_COL:
+        payment_source = Column(String(50), nullable=True, default="cash")
+    else:
+        @property
+        def payment_source(self):
+            return _in_memory_tx_payment_sources.get(str(self.id), "cash")
+
+        @payment_source.setter
+        def payment_source(self, val):
+            _in_memory_tx_payment_sources[str(self.id)] = val
+
     user = relationship("UserDB", back_populates="transactions")
+
+class WalletDB(Base):
+    __tablename__ = "wallets"
+
+    id = Column(UUIDString(), primary_key=True, default=generate_uuid)
+    user_id = Column(UUIDString(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    wallet_type = Column(String(50), nullable=False)  # 'cash' or 'online'
+    balance = Column(Numeric(12, 2), nullable=False, default=Decimal("0.00"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("UserDB", back_populates="wallets")
 
 class CategoryDB(Base):
     __tablename__ = "categories"
@@ -143,6 +181,18 @@ def init_db():
                 for name, column_type in missing_auth_columns.items():
                     connection.exec_driver_sql(
                         f"ALTER TABLE users ADD COLUMN {name} {column_type}"
+                    )
+    except Exception:
+        pass
+
+    # Ensure SQLite transactions table has payment_source column
+    try:
+        if DATABASE_URL.startswith("sqlite"):
+            tx_columns = {column["name"] for column in inspect(engine).get_columns("transactions")}
+            if "payment_source" not in tx_columns:
+                with engine.begin() as connection:
+                    connection.exec_driver_sql(
+                        "ALTER TABLE transactions ADD COLUMN payment_source VARCHAR(50) DEFAULT 'cash'"
                     )
     except Exception:
         pass
@@ -300,20 +350,249 @@ def get_transactions_repo(
         query = query.filter(TransactionDB.category.ilike(category))
     return query.order_by(TransactionDB.date.desc(), TransactionDB.created_at.desc()).offset(offset).limit(limit).all()
 
+# --- WALLET REPOSITORY & TWO-CATEGORY MODEL ---
+
+_has_wallets_tbl = None
+_in_memory_user_wallets = {}
+
+def has_wallets_table() -> bool:
+    global _has_wallets_tbl
+    if _has_wallets_tbl is not None:
+        return _has_wallets_tbl
+    try:
+        insp = inspect(engine)
+        if engine.dialect.name == "postgresql":
+            _has_wallets_tbl = insp.has_table("wallets", schema="public")
+        else:
+            _has_wallets_tbl = insp.has_table("wallets")
+    except Exception:
+        _has_wallets_tbl = False
+    return bool(_has_wallets_tbl)
+
+def get_user_wallets_repo(db: Session, user_id: str) -> dict:
+    cash_bal = None
+    online_bal = None
+
+    if has_wallets_table():
+        try:
+            records = db.query(WalletDB).filter(WalletDB.user_id == user_id).all()
+            for r in records:
+                wtype = r.wallet_type.lower()
+                if wtype == "cash":
+                    cash_bal = Decimal(str(r.balance))
+                elif wtype == "online":
+                    online_bal = Decimal(str(r.balance))
+            
+            # If not yet seeded in database for this user, compute safe initial balance
+            if cash_bal is None or online_bal is None:
+                user = db.query(UserDB).filter(UserDB.id == user_id).first()
+                user_income = Decimal(str(user.income)) if user and user.income else Decimal("0.00")
+                user_spent_sum = db.query(func.coalesce(func.sum(TransactionDB.amount), 0)).filter(
+                    TransactionDB.user_id == user_id
+                ).scalar()
+                spent_dec = Decimal(str(user_spent_sum or 0))
+                unspent = max(Decimal("0.00"), user_income - spent_dec)
+
+                if cash_bal is None:
+                    cash_bal = (unspent / Decimal("2.00")).quantize(Decimal("0.01"))
+                    db.add(WalletDB(user_id=user_id, wallet_type="cash", balance=cash_bal))
+                if online_bal is None:
+                    online_bal = max(Decimal("0.00"), unspent - cash_bal).quantize(Decimal("0.01"))
+                    db.add(WalletDB(user_id=user_id, wallet_type="online", balance=online_bal))
+                db.commit()
+        except Exception:
+            db.rollback()
+
+    if cash_bal is None or online_bal is None:
+        if user_id not in _in_memory_user_wallets:
+            user = db.query(UserDB).filter(UserDB.id == user_id).first()
+            user_income = Decimal(str(user.income)) if user and user.income else Decimal("0.00")
+            user_spent_sum = db.query(func.coalesce(func.sum(TransactionDB.amount), 0)).filter(
+                TransactionDB.user_id == user_id
+            ).scalar()
+            spent_dec = Decimal(str(user_spent_sum or 0))
+            unspent = max(Decimal("0.00"), user_income - spent_dec)
+            c_init = (unspent / Decimal("2.00")).quantize(Decimal("0.01"))
+            o_init = max(Decimal("0.00"), unspent - c_init).quantize(Decimal("0.01"))
+            _in_memory_user_wallets[user_id] = {
+                "cash": c_init,
+                "online": o_init
+            }
+        cash_bal = _in_memory_user_wallets[user_id]["cash"]
+        online_bal = _in_memory_user_wallets[user_id]["online"]
+
+    return {
+        "cash": float(cash_bal),
+        "online": float(online_bal),
+        "total": float((cash_bal + online_bal).quantize(Decimal("0.01")))
+    }
+
+def set_wallet_balance_repo(db: Session, user_id: str, wallet_type: str, balance: float) -> dict:
+    wtype = wallet_type.strip().lower()
+    if wtype not in ("cash", "online"):
+        raise ValueError(f"Invalid wallet type '{wallet_type}'. Supported wallet categories are 'cash' and 'online'.")
+    if balance < 0:
+        raise ValueError("Wallet balance cannot be negative. Legitimate zero balance is allowed.")
+
+    target_bal = Decimal(str(round(balance, 2)))
+
+    # Ensure wallet record exists
+    get_user_wallets_repo(db, user_id)
+
+    if has_wallets_table():
+        try:
+            record = db.query(WalletDB).filter(
+                WalletDB.user_id == user_id,
+                WalletDB.wallet_type == wtype
+            ).first()
+            if record:
+                record.balance = target_bal
+                record.updated_at = datetime.utcnow()
+            else:
+                db.add(WalletDB(user_id=user_id, wallet_type=wtype, balance=target_bal))
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+
+    if user_id in _in_memory_user_wallets:
+        _in_memory_user_wallets[user_id][wtype] = target_bal
+
+    return get_user_wallets_repo(db, user_id)
+
+def transfer_wallet_balance_repo(db: Session, user_id: str, source: str, destination: str, amount: float) -> dict:
+    src = source.strip().lower()
+    dst = destination.strip().lower()
+    if src not in ("cash", "online") or dst not in ("cash", "online"):
+        raise ValueError("Wallet transfer source and destination must be either 'cash' or 'online'.")
+    if src == dst:
+        raise ValueError("Source and destination wallets must be different.")
+    if amount <= 0:
+        raise ValueError("Transfer amount must be strictly positive.")
+
+    current = get_user_wallets_repo(db, user_id)
+    transfer_dec = Decimal(str(round(amount, 2)))
+    current_src_dec = Decimal(str(round(current[src], 2)))
+    current_dst_dec = Decimal(str(round(current[dst], 2)))
+
+    if current_src_dec < transfer_dec:
+        raise ValueError(f"Insufficient funds in {src.title()} wallet. Available: ৳{float(current_src_dec):,.2f}, transfer amount: ৳{float(transfer_dec):,.2f}.")
+
+    new_src_dec = current_src_dec - transfer_dec
+    new_dst_dec = current_dst_dec + transfer_dec
+
+    if has_wallets_table():
+        try:
+            src_rec = db.query(WalletDB).filter(WalletDB.user_id == user_id, WalletDB.wallet_type == src).first()
+            dst_rec = db.query(WalletDB).filter(WalletDB.user_id == user_id, WalletDB.wallet_type == dst).first()
+            if src_rec:
+                src_rec.balance = new_src_dec
+                src_rec.updated_at = datetime.utcnow()
+            else:
+                db.add(WalletDB(user_id=user_id, wallet_type=src, balance=new_src_dec))
+            if dst_rec:
+                dst_rec.balance = new_dst_dec
+                dst_rec.updated_at = datetime.utcnow()
+            else:
+                db.add(WalletDB(user_id=user_id, wallet_type=dst, balance=new_dst_dec))
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+
+    if user_id in _in_memory_user_wallets:
+        _in_memory_user_wallets[user_id][src] = new_src_dec
+        _in_memory_user_wallets[user_id][dst] = new_dst_dec
+
+    return get_user_wallets_repo(db, user_id)
+
+def deduct_expense_from_wallet_repo(db: Session, user_id: str, wallet_type: str, amount: float) -> None:
+    wtype = wallet_type.strip().lower()
+    if wtype not in ("cash", "online"):
+        wtype = "cash"
+    deduct_dec = Decimal(str(round(amount, 2)))
+
+    current = get_user_wallets_repo(db, user_id)
+    current_bal_dec = Decimal(str(round(current[wtype], 2)))
+
+    if current_bal_dec < deduct_dec:
+        raise ValueError(
+            f"Insufficient funds in {wtype.title()} wallet. Available balance: ৳{float(current_bal_dec):,.2f}, required: ৳{float(deduct_dec):,.2f}. Please choose another payment source or update your {wtype.title()} balance."
+        )
+
+    new_bal_dec = current_bal_dec - deduct_dec
+
+    if has_wallets_table():
+        try:
+            rec = db.query(WalletDB).filter(WalletDB.user_id == user_id, WalletDB.wallet_type == wtype).first()
+            if rec:
+                rec.balance = new_bal_dec
+                rec.updated_at = datetime.utcnow()
+            else:
+                db.add(WalletDB(user_id=user_id, wallet_type=wtype, balance=new_bal_dec))
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+
+    if user_id in _in_memory_user_wallets:
+        _in_memory_user_wallets[user_id][wtype] = new_bal_dec
+
+def refund_expense_to_wallet_repo(db: Session, user_id: str, wallet_type: str, amount: float) -> None:
+    wtype = wallet_type.strip().lower()
+    if wtype not in ("cash", "online"):
+        wtype = "cash"
+    refund_dec = Decimal(str(round(amount, 2)))
+
+    current = get_user_wallets_repo(db, user_id)
+    new_bal_dec = Decimal(str(round(current[wtype], 2))) + refund_dec
+
+    if has_wallets_table():
+        try:
+            rec = db.query(WalletDB).filter(WalletDB.user_id == user_id, WalletDB.wallet_type == wtype).first()
+            if rec:
+                rec.balance = new_bal_dec
+                rec.updated_at = datetime.utcnow()
+            else:
+                db.add(WalletDB(user_id=user_id, wallet_type=wtype, balance=new_bal_dec))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+    if user_id in _in_memory_user_wallets:
+        _in_memory_user_wallets[user_id][wtype] = new_bal_dec
+
 def create_transaction_repo(
     db: Session,
     tx: schemas.TransactionCreate,
     user_id: str = DEFAULT_DEMO_USER_ID
 ) -> TransactionDB:
-    db_tx = TransactionDB(
-        id=str(uuid.uuid4()),
-        user_id=user_id,
-        merchant=tx.merchant.strip(),
-        category=tx.category.strip(),
-        amount=Decimal(str(round(tx.amount, 2))),
-        date=tx.date,
-        receipt_url=tx.receipt_url
-    )
+    source = (getattr(tx, "payment_source", None) or "cash").strip().lower()
+    if source not in ("cash", "online"):
+        source = "cash"
+
+    amount_dec = Decimal(str(round(tx.amount, 2)))
+
+    # 1. Atomically deduct expense from the selected wallet
+    deduct_expense_from_wallet_repo(db, user_id=user_id, wallet_type=source, amount=float(amount_dec))
+
+    # 2. Record transaction with payment_source
+    tx_kwargs = {
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "merchant": tx.merchant.strip(),
+        "category": tx.category.strip(),
+        "amount": amount_dec,
+        "date": tx.date,
+        "receipt_url": tx.receipt_url,
+    }
+    if _HAS_PAYMENT_SOURCE_COL:
+        tx_kwargs["payment_source"] = source
+
+    db_tx = TransactionDB(**tx_kwargs)
+    if not _HAS_PAYMENT_SOURCE_COL:
+        db_tx.payment_source = source
+
     db.add(db_tx)
     db.commit()
     db.refresh(db_tx)
@@ -330,8 +609,12 @@ def delete_transaction_repo(
     ).first()
     if not tx:
         return False
+    source = getattr(tx, "payment_source", "cash") or "cash"
+    amt = float(tx.amount)
     db.delete(tx)
     db.commit()
+    # Refund back to the source wallet
+    refund_expense_to_wallet_repo(db, user_id=user_id, wallet_type=source, amount=amt)
     return True
 
 # --- CATEGORY REPOSITORY & FALLBACK SYSTEM ---
@@ -592,11 +875,16 @@ def calculate_dashboard_summary_repo(
     else:
         remaining = float(Decimal(str(round(monthly_income, 2))) - total_spent)
 
+    wallets_data = get_user_wallets_repo(db, user_id)
+
     return schemas.DashboardSummary(
         monthly_income=monthly_income,
         total_budget=float(total_budget),
         total_spent=float(total_spent),
         remaining=remaining,
+        total_balance=wallets_data["total"],
+        cash_balance=wallets_data["cash"],
+        online_balance=wallets_data["online"],
         categories=category_summaries
     )
 

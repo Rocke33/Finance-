@@ -5,6 +5,7 @@ export interface Transaction {
   amount: number;
   date: string;
   receipt_url: string | null;
+  payment_source?: 'cash' | 'online';
 }
 
 export type CategoryStatus = 'normal' | 'warning' | 'danger';
@@ -21,6 +22,9 @@ export interface BudgetSummary {
   total_budget: number;
   total_spent: number;
   remaining: number;
+  total_balance?: number;
+  cash_balance?: number;
+  online_balance?: number;
   categories: BudgetCategory[];
 }
 
@@ -42,6 +46,7 @@ export interface ReceiptExtraction {
   confidence?: number | null;
   is_fallback?: boolean;
   notes?: string | null;
+  payment_source?: 'cash' | 'online';
 }
 
 export interface NewTransactionPayload {
@@ -50,6 +55,7 @@ export interface NewTransactionPayload {
   amount: number;
   date: string;
   receipt_url?: string | null;
+  payment_source?: 'cash' | 'online';
 }
 
 export type CategoryType = 'expense' | 'income' | 'savings';
@@ -69,10 +75,16 @@ export interface NewCategoryPayload {
   icon?: string;
 }
 
+export interface WalletsState {
+  cash_balance: number;
+  online_balance: number;
+  total_balance: number;
+}
+
 export interface WalletItem {
   id: string;
   name: string;
-  type: 'cash' | 'mfs' | 'bank';
+  type: 'cash' | 'online';
   balance: number;
   color?: string;
   fee?: number;

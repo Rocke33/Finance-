@@ -4,17 +4,23 @@ import { BudgetSummary } from '../types/finance';
 
 interface HeroBalanceCardProps {
   summary: BudgetSummary;
+  totalBalance?: number;
   userName?: string;
   onEditIncome?: () => void;
 }
 
 export const HeroBalanceCard: React.FC<HeroBalanceCardProps> = ({
   summary,
+  totalBalance,
   userName = 'User',
   onEditIncome,
 }) => {
   const { monthly_income, total_spent } = summary;
-  const currentBalance = Math.max(0, monthly_income - total_spent);
+  const currentBalance = totalBalance !== undefined
+    ? totalBalance
+    : (summary.total_balance !== undefined
+      ? summary.total_balance
+      : Math.max(0, monthly_income - total_spent));
 
   // Time-based greeting
   const getGreeting = () => {

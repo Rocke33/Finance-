@@ -125,6 +125,7 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
                   <th className="py-3 px-3">Date</th>
                   <th className="py-3 px-3">Merchant</th>
                   <th className="py-3 px-3">Category</th>
+                  <th className="py-3 px-3 text-center">Paid From</th>
                   <th className="py-3 px-3 text-right">Amount</th>
                   <th className="py-3 px-3 text-center">Receipt</th>
                 </tr>
@@ -142,6 +143,21 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
                       <span className={`inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${getCategoryBadgeColor(tx.category)}`}>
                         {tx.category}
                       </span>
+                    </td>
+                    <td className="py-3 px-3 text-center whitespace-nowrap">
+                      {tx.payment_source ? (
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                            tx.payment_source === 'cash'
+                              ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                              : 'bg-blue-50 text-blue-800 border border-blue-200'
+                          }`}
+                        >
+                          {tx.payment_source === 'cash' ? '💵 Cash' : '💳 Online'}
+                        </span>
+                      ) : (
+                        <span className="text-slate-300 text-xs">—</span>
+                      )}
                     </td>
                     <td className="py-3 px-3 text-right font-bold text-slate-900 whitespace-nowrap">
                       ৳{Number(tx.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -175,7 +191,7 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
               >
                 <div className="space-y-1">
                   <div className="font-semibold text-sm text-slate-900">{tx.merchant}</div>
-                  <div className="flex items-center gap-2 text-xs text-slate-500">
+                  <div className="flex items-center gap-2 text-xs text-slate-500 flex-wrap">
                     <span className="flex items-center gap-1">
                       <Calendar className="h-3 w-3 text-slate-400" />
                       {tx.date}
@@ -183,6 +199,17 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
                     <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold border ${getCategoryBadgeColor(tx.category)}`}>
                       {tx.category}
                     </span>
+                    {tx.payment_source && (
+                      <span
+                        className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${
+                          tx.payment_source === 'cash'
+                            ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                            : 'bg-blue-50 text-blue-800 border border-blue-200'
+                        }`}
+                      >
+                        {tx.payment_source === 'cash' ? '💵 Cash' : '💳 Online'}
+                      </span>
+                    )}
                   </div>
                 </div>
 

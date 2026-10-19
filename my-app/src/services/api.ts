@@ -6,6 +6,7 @@ import {
   NewTransactionPayload,
   CategoryItem,
   NewCategoryPayload,
+  WalletsState,
 } from '../types/finance';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
@@ -84,6 +85,51 @@ export async function getDashboardSummary(): Promise<{ data: BudgetSummary }> {
   const data = await res.json();
   return { data };
 }
+
+export async function getWalletsApi(): Promise<WalletsState> {
+  const res = await fetch(`${API_BASE_URL}/api/wallets`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to fetch wallet balances');
+  }
+  return await res.json();
+}
+
+export async function setWalletBalanceApi(
+  walletType: 'cash' | 'online',
+  balance: number
+): Promise<WalletsState> {
+  const res = await fetch(`${API_BASE_URL}/api/wallets/${walletType}`, {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ balance }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to set wallet balance');
+  }
+  return await res.json();
+}
+
+export async function transferWalletFundsApi(
+  source: 'cash' | 'online',
+  destination: 'cash' | 'online',
+  amount: number
+): Promise<WalletsState> {
+  const res = await fetch(`${API_BASE_URL}/api/wallets/transfer`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ source, destination, amount }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to transfer wallet funds');
+  }
+  return await res.json();
+}
+
 
 export async function getTransactions(category?: string): Promise<{ data: Transaction[] }> {
   const url = new URL(`${API_BASE_URL}/api/transactions`);

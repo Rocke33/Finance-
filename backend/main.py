@@ -268,6 +268,98 @@ def delete_category(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete category: {str(e)}")
 
+# --- WALLET ROUTES ---
+
+@app.get(
+    "/api/wallets",
+    response_model=schemas.WalletResponse,
+    summary="Get User Wallet Balances",
+    tags=["Wallets"]
+)
+def get_user_wallets(
+    current_user: database.UserDB = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    try:
+        data = database.get_user_wallets_repo(db, str(current_user.id))
+        return schemas.WalletResponse(
+            cash_balance=data["cash"],
+            online_balance=data["online"],
+            total_balance=data["total"]
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch wallet balances: {str(e)}"
+        )
+
+@app.put(
+    "/api/wallets/{wallet_type}",
+    response_model=schemas.WalletResponse,
+    summary="Set Cash or Online Wallet Balance",
+    tags=["Wallets"]
+)
+def set_wallet_balance(
+    wallet_type: str,
+    req: schemas.WalletSetRequest,
+    current_user: database.UserDB = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    try:
+        data = database.set_wallet_balance_repo(
+            db, user_id=str(current_user.id), wallet_type=wallet_type, balance=req.balance
+        )
+        return schemas.WalletResponse(
+            cash_balance=data["cash"],
+            online_balance=data["online"],
+            total_balance=data["total"]
+        )
+    except ValueError as ve:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(ve)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to set wallet balance: {str(e)}"
+        )
+
+@app.post(
+    "/api/wallets/transfer",
+    response_model=schemas.WalletResponse,
+    summary="Transfer Funds between Cash and Online",
+    tags=["Wallets"]
+)
+def transfer_wallet_funds(
+    req: schemas.WalletTransferRequest,
+    current_user: database.UserDB = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    try:
+        data = database.transfer_wallet_balance_repo(
+            db,
+            user_id=str(current_user.id),
+            source=req.source,
+            destination=req.destination,
+            amount=req.amount
+        )
+        return schemas.WalletResponse(
+            cash_balance=data["cash"],
+            online_balance=data["online"],
+            total_balance=data["total"]
+        )
+    except ValueError as ve:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(ve)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to transfer wallet funds: {str(e)}"
+        )
+
 # --- TRANSACTION ROUTES ---
 
 @app.get(
@@ -298,6 +390,7 @@ def get_transactions(
                 category=tx.category,
                 amount=float(tx.amount),
                 date=tx.date,
+                payment_source=getattr(tx, "payment_source", "cash") or "cash",
                 receipt_url=tx.receipt_url
             )
             for tx in txs
@@ -328,7 +421,13 @@ def create_transaction(
             category=new_tx.category,
             amount=float(new_tx.amount),
             date=new_tx.date,
+            payment_source=getattr(new_tx, "payment_source", "cash") or "cash",
             receipt_url=new_tx.receipt_url
+        )
+    except ValueError as ve:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(ve)
         )
     except Exception as e:
         raise HTTPException(
@@ -454,7 +553,11 @@ def chat_with_finai(
 ):
     try:
         summary_data = database.calculate_dashboard_summary_repo(db, user_id=str(current_user.id))
+        wallets_data = database.get_user_wallets_repo(db, user_id=str(current_user.id))
         user_context = {
+            "total_balance": wallets_data["total"],
+            "cash_balance": wallets_data["cash"],
+            "online_balance": wallets_data["online"],
             "monthly_income": summary_data.monthly_income,
             "total_budget": summary_data.total_budget,
             "total_spent": summary_data.total_spent,

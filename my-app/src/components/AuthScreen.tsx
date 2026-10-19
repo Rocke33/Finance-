@@ -74,7 +74,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
                   required
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Takbir A. Himu"
+                  placeholder="e.g. Liton Zude Rozario"
                   className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0F382C]/20 focus:border-[#0F382C] text-sm text-slate-800 transition-colors"
                 />
               </div>

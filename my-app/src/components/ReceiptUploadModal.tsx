@@ -8,14 +8,17 @@ import {
   Loader2,
   Sparkles,
   Info,
+  Banknote,
+  Smartphone,
 } from 'lucide-react';
-import { ReceiptExtraction, NewTransactionPayload } from '../types/finance';
+import { ReceiptExtraction, NewTransactionPayload, WalletsState } from '../types/finance';
 import { uploadReceiptImage } from '../services/api';
 
 interface ReceiptUploadModalProps {
   isOpen: boolean;
   onClose: () => void;
   onTransactionSaved: (tx: NewTransactionPayload) => void;
+  wallets?: WalletsState | null;
 }
 
 export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
@@ -34,6 +37,7 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
   const [category, setCategory] = useState('Food');
   const [amount, setAmount] = useState<number | string>('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [paymentSource, setPaymentSource] = useState<'cash' | 'online'>('cash');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -51,6 +55,7 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
     setCategory('Food');
     setAmount('');
     setDate(new Date().toISOString().split('T')[0]);
+    setPaymentSource('cash');
   };
 
   const handleClose = () => {
@@ -123,6 +128,7 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
       amount: numAmount,
       date: date,
       receipt_url: previewUrl,
+      payment_source: paymentSource,
     });
 
     handleClose();
@@ -262,6 +268,37 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
             )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              {/* Payment Source Selector */}
+              <div className="sm:col-span-2">
+                <label className="block font-semibold text-slate-700 mb-1">Paid From / Payment Source</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentSource('cash')}
+                    className={`py-2 px-3 rounded-xl border flex items-center justify-center gap-2 font-bold transition-all cursor-pointer ${
+                      paymentSource === 'cash'
+                        ? 'border-emerald-500 bg-emerald-50 text-emerald-800 ring-2 ring-emerald-500/20'
+                        : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Banknote className="h-4 w-4 text-emerald-600" />
+                    <span>Cash</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentSource('online')}
+                    className={`py-2 px-3 rounded-xl border flex items-center justify-center gap-2 font-bold transition-all cursor-pointer ${
+                      paymentSource === 'online'
+                        ? 'border-indigo-500 bg-indigo-50 text-indigo-800 ring-2 ring-indigo-500/20'
+                        : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Smartphone className="h-4 w-4 text-indigo-600" />
+                    <span>Online</span>
+                  </button>
+                </div>
+              </div>
+
               <div className="sm:col-span-2">
                 <label className="block font-semibold text-slate-700 mb-1">Merchant / Business</label>
                 <input

@@ -53,13 +53,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     .slice(0, 2)
     .toUpperCase() || 'BH';
 
-  const navLinks = [
+  const mainNavLinks = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'transactions', label: 'Transactions', icon: CreditCard },
     { id: 'analytics', label: 'Stats & Trends', icon: PieChart },
     { id: 'categories', label: 'Category Settings', icon: Layers },
     { id: 'budgets', label: 'Category Budgets', icon: Target },
-    { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
   return (
@@ -129,33 +128,57 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Navigation Links */}
-        <nav className="flex-1 px-3 py-3 space-y-1 overflow-y-auto">
-          <span className="px-3 text-[10px] font-bold tracking-wider text-slate-400 uppercase block mb-1">
-            Menu
-          </span>
-          {navLinks.map((link) => {
-            const Icon = link.icon;
-            const isActive = currentTab === link.id;
+        <nav className="flex-1 px-3 py-3 flex flex-col justify-between overflow-y-auto">
+          <div className="space-y-1">
+            <span className="px-3 text-[10px] font-bold tracking-wider text-slate-400 uppercase block mb-1">
+              Menu
+            </span>
+            {mainNavLinks.map((link) => {
+              const Icon = link.icon;
+              const isActive = currentTab === link.id;
 
-            return (
-              <button
-                key={link.id}
-                type="button"
-                onClick={() => {
-                  setCurrentTab(link.id);
-                  setIsOpenMobile(false);
-                }}
-                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
-                  isActive
-                    ? 'bg-rose-50 text-[#E5484D]'
-                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                }`}
-              >
-                <Icon className={`h-4 w-4 ${isActive ? 'text-[#E5484D]' : 'text-slate-400'}`} />
-                <span>{link.label}</span>
-              </button>
-            );
-          })}
+              return (
+                <button
+                  key={link.id}
+                  id={`nav-${link.id}-desktop`}
+                  type="button"
+                  onClick={() => {
+                    setCurrentTab(link.id);
+                    setIsOpenMobile(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                    isActive
+                      ? 'bg-rose-50 text-[#E5484D]'
+                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
+                >
+                  <Icon className={`h-4 w-4 ${isActive ? 'text-[#E5484D]' : 'text-slate-400'}`} />
+                  <span>{link.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Bottom Area: Reserved empty space above Settings */}
+          <div className="pt-4 border-t border-slate-100 mt-auto">
+            <div id="ai-assistant-default-anchor-desktop" className="h-14 mb-2 pointer-events-none rounded-xl flex items-center justify-center" />
+            <button
+              id="nav-settings-desktop"
+              type="button"
+              onClick={() => {
+                setCurrentTab('settings');
+                setIsOpenMobile(false);
+              }}
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                currentTab === 'settings'
+                  ? 'bg-rose-50 text-[#E5484D]'
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+              }`}
+            >
+              <Settings className={`h-4 w-4 ${currentTab === 'settings' ? 'text-[#E5484D]' : 'text-slate-400'}`} />
+              <span>Settings</span>
+            </button>
+          </div>
         </nav>
 
         {/* User Footer Profile */}
