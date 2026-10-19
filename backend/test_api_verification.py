@@ -11,7 +11,7 @@ from main import app
 client = TestClient(app)
 
 def run_tests():
-    print("=== BEHISABI API VERIFICATION TESTS ===")
+    print("=== AIFinance API VERIFICATION TESTS ===")
     
     # 1. Health check
     res = client.get("/")

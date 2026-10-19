@@ -44,7 +44,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
             <span className="text-3xl" role="img" aria-label="BeHisabi Bee">🐝</span>
           </div>
           <h1 className="text-2xl font-black tracking-tight text-slate-900">
-            Be<span className="text-[#E5484D]">Hisabi</span>
+             Be<span className="text-[#E5484D]">Hisabi</span>
           </h1>
           <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mt-0.5">
             Expense & Budget

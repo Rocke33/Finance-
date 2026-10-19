@@ -241,7 +241,7 @@ export default function App() {
 
             {/* Logo on Mobile */}
             <div className="flex items-center gap-2 lg:hidden">
-              <span className="text-xl" role="img" aria-label="BeHisabi Bee">🐝</span>
+              <span className="text-xl" role="img" aria-label="AiFinance">🐝</span>
               <span className="font-black text-slate-900 text-base">
                 AI<span className="text-[#E5484D]">Finance</span>
               </span>
