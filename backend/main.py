@@ -35,6 +35,7 @@ required_origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
+    "https://financeai-1cd.pages.dev",
 ]
 allowed_origins_env = os.getenv("CORS_ORIGINS", "")
 configured_origins = [origin.strip() for origin in allowed_origins_env.split(",") if origin.strip()]
