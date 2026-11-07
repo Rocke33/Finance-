@@ -27,9 +27,9 @@ SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 
 supabase_client: Optional[Client] = None
-if SUPABASE_URL and SUPABASE_ANON_KEY:
+if SUPABASE_URL and SUPABASE_KEY:
     try:
-        supabase_client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+        supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
     except Exception as e:
         print(f"Warning: Supabase client initialization failed: {e}")
 
