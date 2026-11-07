@@ -15,7 +15,7 @@ import schemas
 import database
 import json
 from fastapi.responses import StreamingResponse
-from ai_service import process_receipt_image, answer_finance_query, answer_finance_query_stream
+from ai_service import process_receipt_image, answer_finance_query
 
 # Import Supabase Client for OTP Email Auth
 from supabase import create_client, Client
