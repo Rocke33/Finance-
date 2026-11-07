@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, EmailStr, field_validator
 from typing import Optional, List, Literal
 from datetime import date as DateType
 from decimal import Decimal
@@ -91,6 +91,14 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     user: UserResponse
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    token: str = Field(..., min_length=1, max_length=10, description="6-digit OTP code")
+    new_password: str = Field(..., min_length=4)
+
 # --- CHAT SCHEMAS ---
 
 class ChatMessageRequest(BaseModel):
@@ -141,4 +149,3 @@ class WalletTransferRequest(BaseModel):
     @classmethod
     def validate_amount(cls, v):
         return round(float(v), 2)
-

@@ -13,9 +13,25 @@ from dotenv import load_dotenv
 
 import schemas
 import database
-from ai_service import process_receipt_image, answer_finance_query
+import json
+from fastapi.responses import StreamingResponse
+from ai_service import process_receipt_image, answer_finance_query, answer_finance_query_stream
+
+# Import Supabase Client for OTP Email Auth
+from supabase import create_client, Client
 
 load_dotenv()
+
+# Supabase Auth Setup
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
+
+supabase_client: Optional[Client] = None
+if SUPABASE_URL and SUPABASE_ANON_KEY:
+    try:
+        supabase_client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+    except Exception as e:
+        print(f"Warning: Supabase client initialization failed: {e}")
 
 # JWT Config
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "hackathon-secret-jwt-key")
@@ -25,7 +41,7 @@ ALGORITHM = "HS256"
 database.init_db()
 
 app = FastAPI(
-    title="BeHisabi Personal Finance Assistant API",
+    title="FinAI Personal Finance Assistant API",
     version="1.0.0",
     description="Backend API for personal finance tracking, budget calculations, receipt extraction, and AI advice."
 )
@@ -116,7 +132,7 @@ def get_current_user(
 def health_check():
     return {
         "status": "Online",
-        "service": "BeHisabi Personal Finance Assistant Engine",
+        "service": "FinAI Personal Finance Assistant Engine",
         "version": "1.0.0"
     }
 
@@ -165,6 +181,64 @@ def login_user(user_in: schemas.UserLogin, db: Session = Depends(database.get_db
             "income": float(user.income or 0)
         }
     }
+
+@app.post("/api/auth/forgot-password", tags=["Auth"])
+def forgot_password(req: schemas.ForgotPasswordRequest, db: Session = Depends(database.get_db)):
+    email_clean = req.email.strip().lower()
+    user = database.get_user_by_email_repo(db, email=email_clean)
+    if not user:
+        # Prevent user enumeration security vulnerability
+        return {"message": "If the email is registered, a 6-digit recovery code has been sent."}
+
+    if not supabase_client:
+        raise HTTPException(
+            status_code=500,
+            detail="Supabase client is not configured. Check SUPABASE_URL and SUPABASE_ANON_KEY in environment variables."
+        )
+
+    try:
+        supabase_client.auth.reset_password_for_email(
+            email_clean,
+            options={"redirect_to": None}
+        )
+        return {"message": "Recovery OTP code sent to your email."}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/auth/reset-password", tags=["Auth"])
+def reset_password(req: schemas.ResetPasswordRequest, db: Session = Depends(database.get_db)):
+    email_clean = req.email.strip().lower()
+    token_clean = req.token.strip()
+
+    if not supabase_client:
+        raise HTTPException(
+            status_code=500,
+            detail="Supabase client is not configured. Check SUPABASE_URL and SUPABASE_ANON_KEY in environment variables."
+        )
+
+    try:
+        # 1. Verify 6-digit OTP code against Supabase Auth
+        verify_res = supabase_client.auth.verify_otp({
+            "email": email_clean,
+            "token": token_clean,
+            "type": "recovery"
+        })
+
+        if not verify_res or not verify_res.user:
+            raise HTTPException(status_code=400, detail="Invalid or expired 6-digit code.")
+
+        # 2. Update user's password in local DB / Supabase repository
+        database.update_user_password_repo(
+            db,
+            email=email_clean,
+            new_password=req.new_password
+        )
+
+        return {"message": "Password reset successfully. You can now log in with your new password."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e) or "Failed to reset password.")
 
 # --- DASHBOARD & BUDGET ROUTES ---
 
@@ -574,4 +648,54 @@ def chat_with_finai(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"AI chat error: {str(e)}"
+        )
+
+
+@app.post("/api/chat/stream", tags=["AI"])
+def chat_with_finai_stream(
+    req: schemas.ChatMessageRequest,
+    current_user: database.UserDB = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    try:
+        summary_data = database.calculate_dashboard_summary_repo(db, user_id=str(current_user.id))
+        wallets_data = database.get_user_wallets_repo(db, user_id=str(current_user.id))
+        user_context = {
+            "total_balance": wallets_data["total"],
+            "cash_balance": wallets_data["cash"],
+            "online_balance": wallets_data["online"],
+            "monthly_income": summary_data.monthly_income,
+            "total_budget": summary_data.total_budget,
+            "total_spent": summary_data.total_spent,
+            "remaining": summary_data.remaining,
+            "categories": [
+                {"name": c.name, "allocated": c.allocated, "spent": c.spent}
+                for c in summary_data.categories
+            ]
+        }
+
+        def sse_event_generator():
+            try:
+                for text_chunk in answer_finance_query_stream(question=req.message, user_context=user_context):
+                    payload = json.dumps({"text": text_chunk})
+                    yield f"data: {payload}\n\n"
+                yield "data: [DONE]\n\n"
+            except Exception as stream_err:
+                err_payload = json.dumps({"error": str(stream_err)})
+                yield f"data: {err_payload}\n\n"
+                yield "data: [DONE]\n\n"
+
+        return StreamingResponse(
+            sse_event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            }
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"AI streaming error: {str(e)}"
         )
