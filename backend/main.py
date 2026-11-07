@@ -197,25 +197,23 @@ def login_user(user_in: schemas.UserLogin, db: Session = Depends(database.get_db
 
 @app.post("/api/auth/forgot-password", tags=["Auth"])
 def forgot_password(req: schemas.ForgotPasswordRequest, db: Session = Depends(database.get_db)):
+    if not supabase_client:
+        raise HTTPException(status_code=500, detail="Supabase client is not configured.")
+
     email_clean = req.email.strip().lower()
+
+    # Verify user exists in PostgreSQL local DB first
     user = database.get_user_by_email_repo(db, email=email_clean)
     if not user:
-        # Prevent user enumeration security vulnerability
-        return {"message": "If the email is registered, a 6-digit recovery code has been sent."}
-
-    if not supabase_client:
-        raise HTTPException(
-            status_code=500,
-            detail="Supabase client is not configured. Check SUPABASE_URL and SUPABASE_ANON_KEY in environment variables."
-        )
+        # Return success even if email not found to prevent email enumeration
+        return {"message": "If an account exists, a 6-digit recovery code has been sent."}
 
     try:
-        supabase_client.auth.reset_password_for_email(
-            email_clean,
-            options={"redirect_to": None}
-        )
-        return {"message": "Recovery OTP code sent to your email."}
+        # Trigger OTP / Recovery Email via Supabase
+        res = supabase_client.auth.reset_password_for_email(email_clean)
+        return {"message": "If an account exists, a 6-digit recovery code has been sent."}
     except Exception as e:
+        print(f"Supabase reset error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/api/auth/reset-password", tags=["Auth"])
