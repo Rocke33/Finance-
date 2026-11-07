@@ -24,7 +24,7 @@ load_dotenv()
 
 # Supabase Auth Setup
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
-SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 
 supabase_client: Optional[Client] = None
 if SUPABASE_URL and SUPABASE_ANON_KEY:
