@@ -144,6 +144,7 @@ def register_user(user_in: schemas.UserRegister, db: Session = Depends(database.
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered.")
     
+    # 1. Local database user creation logic
     new_user = database.create_user_repo(
         db,
         name=user_in.name,
@@ -151,6 +152,18 @@ def register_user(user_in: schemas.UserRegister, db: Session = Depends(database.
         password=user_in.password,
         income=user_in.income or 0.0
     )
+
+    # 2. Sync to Supabase Auth for OTP/Password Reset functionality
+    if supabase_client:
+        try:
+            supabase_client.auth.admin.create_user({
+                "email": user_in.email,
+                "password": user_in.password,
+                "email_confirm": True
+            })
+        except Exception as e:
+            # If user already exists in Supabase Auth, proceed without failing registration
+            print(f"Supabase Auth sync note: {e}")
     
     token = create_access_token({"sub": str(new_user.id), "email": new_user.email})
     return {
