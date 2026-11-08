@@ -338,6 +338,25 @@ def authenticate_user_repo(db: Session, email: str, password: str) -> Optional[U
 
     return None
 
+def update_user_password_repo(
+    db: Session,
+    email: str,
+    new_password: str
+) -> Optional[UserDB]:
+    """
+    Update a user's password securely using bcrypt hashing,
+    invalidating legacy pbkdf2 hash and refreshing the record.
+    """
+    user = get_user_by_email_repo(db, email)
+    if user is None:
+        return None
+
+    user.password_hash = hash_password(new_password)
+    user.hashed_password = None
+    db.commit()
+    db.refresh(user)
+    return user
+
 def get_transactions_repo(
     db: Session,
     user_id: str = DEFAULT_DEMO_USER_ID,
@@ -620,7 +639,7 @@ def delete_transaction_repo(
 # --- CATEGORY REPOSITORY & FALLBACK SYSTEM ---
 
 DEFAULT_CATEGORIES = [
-    # Expense Categories
+    # Expense Categories Only (Savings & Income categories removed)
     {"id": "cat_exp_1", "name": "Food", "type": "expense", "color": "#F97316", "icon": "Utensils"},
     {"id": "cat_exp_2", "name": "Transport", "type": "expense", "color": "#3B82F6", "icon": "Car"},
     {"id": "cat_exp_3", "name": "Bills & Utilities", "type": "expense", "color": "#8B5CF6", "icon": "Receipt"},
@@ -628,19 +647,13 @@ DEFAULT_CATEGORIES = [
     {"id": "cat_exp_5", "name": "Health", "type": "expense", "color": "#EF4444", "icon": "HeartPulse"},
     {"id": "cat_exp_6", "name": "Entertainment", "type": "expense", "color": "#10B981", "icon": "Film"},
     {"id": "cat_exp_7", "name": "Groceries", "type": "expense", "color": "#14B8A6", "icon": "ShoppingCart"},
-    # Income Categories
-    {"id": "cat_inc_1", "name": "Salary", "type": "income", "color": "#10B981", "icon": "Briefcase"},
-    {"id": "cat_inc_2", "name": "Business", "type": "income", "color": "#3B82F6", "icon": "TrendingUp"},
-    {"id": "cat_inc_3", "name": "Freelance", "type": "income", "color": "#8B5CF6", "icon": "Laptop"},
-    {"id": "cat_inc_4", "name": "Investment", "type": "income", "color": "#F59E0B", "icon": "PieChart"},
-    {"id": "cat_inc_5", "name": "Allowance", "type": "income", "color": "#06B6D4", "icon": "Wallet"},
-    {"id": "cat_inc_6", "name": "Gift", "type": "income", "color": "#EC4899", "icon": "Gift"},
-    {"id": "cat_inc_7", "name": "Other Income", "type": "income", "color": "#64748B", "icon": "PlusCircle"},
-    # Savings Categories
-    {"id": "cat_sav_1", "name": "Emergency Fund", "type": "savings", "color": "#10B981", "icon": "ShieldCheck"},
-    {"id": "cat_sav_2", "name": "Investment", "type": "savings", "color": "#6366F1", "icon": "PiggyBank"},
-    {"id": "cat_sav_3", "name": "General Savings", "type": "savings", "color": "#0EA5E9", "icon": "Vault"},
 ]
+
+DISALLOWED_CATEGORY_NAMES = {
+    "income", "savings", "saving", "salary", "freelance",
+    "allowance", "other income", "emergency fund",
+    "general savings", "investment", "business", "gift"
+}
 
 _has_cat_table = None
 _in_memory_user_categories = {}
@@ -700,7 +713,14 @@ def get_categories_repo(db: Session, user_id: str) -> List[schemas.CategoryRespo
             ))
             seen_names.add(d["name"].lower())
 
-    return categories
+    # Filter strictly for expense categories only
+    filtered = [
+        c for c in categories
+        if (c.type == "expense" or not c.type)
+        and c.name.lower() not in DISALLOWED_CATEGORY_NAMES
+        and not any(word in c.name.lower() for word in ["income", "saving"])
+    ]
+    return filtered
 
 def create_category_repo(
     db: Session,

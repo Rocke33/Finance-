@@ -205,7 +205,7 @@ def answer_finance_query(
         """
 
     system_instruction = f"""
-    You are BeHisabi AI, an expert, supportive, and practical personal finance assistant for the BeHisabi application.
+    You are FinAI, an expert, supportive, and practical personal finance assistant for the FinAI application.
     Your goal is to provide actionable financial advice, budgeting tips, smart expense reduction ideas, and answers to personal finance questions.
     IMPORTANT LANGUAGE RULE: You must always respond in English by default. If the user explicitly asks in Bengali or another language, you may respond in that language.
     Keep your explanations concise, realistic, and culturally tailored to Bangladesh (currency: BDT / ৳).
@@ -215,7 +215,7 @@ def answer_finance_query(
     {context_str}
     """
 
-    prompt = f"{system_instruction}\nUser Question: {question}\nBeHisabi AI:"
+    prompt = f"{system_instruction}\nUser Question: {question}\nFinAI:"
 
     last_error = None
     for model_name in CHAT_MODELS:
@@ -232,3 +232,78 @@ def answer_finance_query(
             continue
 
     return f"Unable to generate financial advice at the moment. Error: {last_error}"
+
+
+def answer_finance_query_stream(
+    question: str,
+    user_context: Optional[dict] = None
+):
+    """
+    Streams AI financial advice token by token using Google GenAI SDK.
+    """
+    client = get_genai_client()
+    if client is None:
+        yield "I am currently running in offline fallback mode. Please configure GEMINI_API_KEY in backend/.env to enable live AI chat."
+        return
+
+    context_str = ""
+    if user_context:
+        income = user_context.get("monthly_income", 0.0)
+        spent = user_context.get("total_spent", 0.0)
+        budget = user_context.get("total_budget", 0.0)
+        remaining = user_context.get("remaining", 0.0)
+        categories = user_context.get("categories", [])
+        total_balance = user_context.get("total_balance")
+        cash_balance = user_context.get("cash_balance")
+        online_balance = user_context.get("online_balance")
+
+        cat_breakdown = ", ".join(
+            [f"{c.get('name')}: Spent ৳{c.get('spent')} of ৳{c.get('allocated')}" for c in categories]
+        )
+
+        balance_info = ""
+        if total_balance is not None:
+            balance_info = f"""
+        - Current Total Wallet Balance: BDT {total_balance:,.2f}
+        - Cash Wallet Balance: BDT {cash_balance:,.2f}
+        - Online Payment Balance: BDT {online_balance:,.2f}"""
+
+        context_str = f"""
+        User Current Verified Financial Overview:{balance_info}
+        - Monthly Income: BDT {income:,.2f}
+        - Total Budget Allocated: BDT {budget:,.2f}
+        - Total Spent This Month: BDT {spent:,.2f}
+        - Remaining Budget Capacity: BDT {remaining:,.2f}
+        - Category Spending Breakdown: {cat_breakdown}
+        """
+
+    system_instruction = f"""
+    You are FinAI, an expert, supportive, and practical personal finance assistant for the FinAI application.
+    Your goal is to provide actionable financial advice, budgeting tips, smart expense reduction ideas, and answers to personal finance questions.
+    IMPORTANT LANGUAGE RULE: You must always respond in English by default. If the user explicitly asks in Bengali or another language, you may respond in that language.
+    Keep your explanations concise, realistic, and culturally tailored to Bangladesh (currency: BDT / ৳).
+    Use bullet points and bold highlights for readability. Never fabricate transaction records, balances, or budgets.
+    Only refer to actual financial figures provided in the verified overview.
+
+    {context_str}
+    """
+
+    prompt = f"{system_instruction}\nUser Question: {question}\nFinAI:"
+
+    last_error = None
+    for model_name in CHAT_MODELS:
+        try:
+            stream = client.models.generate_content_stream(
+                model=model_name,
+                contents=prompt
+            )
+            for chunk in stream:
+                if chunk.text:
+                    yield chunk.text
+            return
+        except Exception as e:
+            last_error = e
+            logger.warning(f"Streaming chat failed with {model_name}: {e}")
+            continue
+
+    yield f"Unable to generate financial advice at the moment. Error: {last_error}"

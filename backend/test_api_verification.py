@@ -25,7 +25,7 @@ def run_tests():
 
     # 3. Register New User A
     import uuid
-    rand_email = f"user_a_{uuid.uuid4().hex[:8]}@behisabi.test"
+    rand_email = f"user_a_{uuid.uuid4().hex[:8]}@finai.test"
     reg_payload = {
         "name": "Takbir A. Himu",
         "email": rand_email,
@@ -102,7 +102,7 @@ def run_tests():
     print("[PASS] 10. Dashboard summary dynamically updated: Total spent BDT 2,500, remaining BDT 72,500")
 
     # 11. User Data Isolation: Register User B and verify complete isolation
-    rand_email_b = f"user_b_{uuid.uuid4().hex[:8]}@behisabi.test"
+    rand_email_b = f"user_b_{uuid.uuid4().hex[:8]}@finai.test"
     reg_b = client.post("/api/auth/register", json={
         "name": "Nadia Mou",
         "email": rand_email_b,

@@ -1,4 +1,5 @@
-from pydantic import BaseModel, Field, EmailStr, field_validator
+from pydantic import BaseModel, Field, field_validator
+import re
 from typing import Optional, List, Literal
 from datetime import date as DateType
 from decimal import Decimal
@@ -92,12 +93,28 @@ class TokenResponse(BaseModel):
     user: UserResponse
 
 class ForgotPasswordRequest(BaseModel):
-    email: EmailStr
+    email: str = Field(..., min_length=3, max_length=255)
+
+    @field_validator('email')
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        clean = v.strip().lower()
+        if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", clean):
+            raise ValueError("Invalid email address format.")
+        return clean
 
 class ResetPasswordRequest(BaseModel):
-    email: EmailStr
-    token: str = Field(..., min_length=1, max_length=10, description="6-digit OTP code")
-    new_password: str = Field(..., min_length=4)
+    email: str = Field(..., min_length=3, max_length=255)
+    token: str = Field(..., min_length=1, max_length=10, description="Verification code")
+    new_password: str = Field(..., min_length=6, max_length=128)
+
+    @field_validator('email')
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        clean = v.strip().lower()
+        if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", clean):
+            raise ValueError("Invalid email address format.")
+        return clean
 
 # --- CHAT SCHEMAS ---
 
