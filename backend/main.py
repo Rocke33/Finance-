@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 import schemas
 import database
 import json
+import otp_service
 from fastapi.responses import StreamingResponse
 from ai_service import process_receipt_image, answer_finance_query
 
@@ -25,6 +26,7 @@ load_dotenv()
 # Supabase Auth Setup
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 
 supabase_client: Optional[Client] = None
 if SUPABASE_URL and SUPABASE_KEY:
@@ -32,6 +34,13 @@ if SUPABASE_URL and SUPABASE_KEY:
         supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
     except Exception as e:
         print(f"Warning: Supabase client initialization failed: {e}")
+
+supabase_admin_client: Optional[Client] = None
+if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
+    try:
+        supabase_admin_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    except Exception as e:
+        print(f"Warning: Supabase admin client initialization failed: {e}")
 
 # JWT Config
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "hackathon-secret-jwt-key")
@@ -153,17 +162,25 @@ def register_user(user_in: schemas.UserRegister, db: Session = Depends(database.
         income=user_in.income or 0.0
     )
 
-    # 2. Sync to Supabase Auth for OTP/Password Reset functionality
-    if supabase_client:
+    # 2. Sync to Supabase Auth (if admin client is available)
+    if supabase_admin_client:
         try:
-            supabase_client.auth.admin.create_user({
+            supabase_admin_client.auth.admin.create_user({
                 "email": user_in.email,
                 "password": user_in.password,
                 "email_confirm": True
             })
         except Exception as e:
-            # If user already exists in Supabase Auth, proceed without failing registration
-            print(f"Supabase Auth sync note: {e}")
+            print(f"Supabase admin auth sync note: {e}")
+    elif supabase_client:
+        try:
+            # Fallback client signup
+            supabase_client.auth.sign_up({
+                "email": user_in.email,
+                "password": user_in.password
+            })
+        except Exception as e:
+            print(f"Supabase client signup note: {e}")
     
     token = create_access_token({"sub": str(new_user.id), "email": new_user.email})
     return {
@@ -197,59 +214,107 @@ def login_user(user_in: schemas.UserLogin, db: Session = Depends(database.get_db
 
 @app.post("/api/auth/forgot-password", tags=["Auth"])
 def forgot_password(req: schemas.ForgotPasswordRequest, db: Session = Depends(database.get_db)):
-    if not supabase_client:
-        raise HTTPException(status_code=500, detail="Supabase client is not configured.")
-
+    """
+    Initiates password reset by issuing a 6-digit OTP code.
+    Protects against email enumeration, enforces cooldown rate limits,
+    and dispatches via Direct SMTP or Supabase Auth.
+    """
     email_clean = req.email.strip().lower()
 
-    # Verify user exists in PostgreSQL local DB first
+    # 1. Check if user exists in application database
     user = database.get_user_by_email_repo(db, email=email_clean)
     if not user:
-        # Return success even if email not found to prevent email enumeration
-        return {"message": "If an account exists, a 6-digit recovery code has been sent."}
+        # Generic response to prevent user account enumeration
+        return {"message": "If an account exists with this email, a 6-digit verification code has been sent."}
 
-    try:
-        # Trigger OTP / Recovery Email via Supabase
-        res = supabase_client.auth.reset_password_for_email(email_clean)
-        return {"message": "If an account exists, a 6-digit recovery code has been sent."}
-    except Exception as e:
-        print(f"Supabase reset error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+    # 2. Route A: Direct SMTP Delivery (Primary / Most Reliable)
+    if otp_service.is_smtp_configured():
+        code, err = otp_service.otp_manager.generate_otp(email_clean)
+        if err:
+            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=err)
+
+        sent, send_err = otp_service.send_otp_email(email_clean, code)
+        if not sent:
+            print(f"SMTP dispatch error: {send_err}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Email delivery failed: {send_err}. Please verify backend SMTP credentials."
+            )
+        return {"message": "If an account exists with this email, a 6-digit verification code has been sent."}
+
+    # 3. Route B: Supabase Auth Recovery Delivery
+    if supabase_client:
+        code, err = otp_service.otp_manager.generate_otp(email_clean)
+        if err:
+            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=err)
+
+        try:
+            supabase_client.auth.reset_password_for_email(email_clean)
+            return {"message": "If an account exists with this email, a 6-digit verification code has been sent."}
+        except Exception as e:
+            err_msg = str(e)
+            print(f"Supabase password reset error: {err_msg}")
+            if "Error sending recovery email" in err_msg:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=(
+                        "Email delivery failed. Supabase email sending limit exceeded or custom SMTP is not configured. "
+                        "Please configure Custom SMTP in Supabase Dashboard (Auth -> SMTP Settings) or in backend .env."
+                    )
+                )
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err_msg)
+
+    # 4. Fallback if neither email channel is configured
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Password reset is unavailable because no email delivery provider (SMTP or Supabase) is configured."
+    )
 
 @app.post("/api/auth/reset-password", tags=["Auth"])
 def reset_password(req: schemas.ResetPasswordRequest, db: Session = Depends(database.get_db)):
+    """
+    Verifies the 6-digit OTP code and securely updates the user's password.
+    Supports dual verification (Backend OTP manager or Supabase Auth).
+    """
     email_clean = req.email.strip().lower()
     token_clean = req.token.strip()
 
-    if not supabase_client:
+    # 1. Attempt verification with local OTP Manager (direct SMTP / local OTPs)
+    verified, verify_msg = otp_service.otp_manager.verify_otp(email_clean, token_clean)
+
+    # 2. If not verified locally, attempt Supabase Auth OTP verification
+    if not verified and supabase_client:
+        try:
+            sb_res = supabase_client.auth.verify_otp({
+                "email": email_clean,
+                "token": token_clean,
+                "type": "recovery"
+            })
+            if sb_res and sb_res.user:
+                verified = True
+        except Exception as sb_err:
+            print(f"Supabase verify_otp note: {sb_err}")
+
+    if not verified:
         raise HTTPException(
-            status_code=500,
-            detail="Supabase client is not configured. Check SUPABASE_URL and SUPABASE_ANON_KEY in environment variables."
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=verify_msg if ("attempts" in verify_msg.lower() or "expired" in verify_msg.lower()) else "Invalid or expired 6-digit verification code."
         )
 
-    try:
-        # 1. Verify 6-digit OTP code against Supabase Auth
-        verify_res = supabase_client.auth.verify_otp({
-            "email": email_clean,
-            "token": token_clean,
-            "type": "recovery"
-        })
+    # 3. Securely update password in PostgreSQL database using bcrypt
+    updated_user = database.update_user_password_repo(
+        db,
+        email=email_clean,
+        new_password=req.new_password
+    )
 
-        if not verify_res or not verify_res.user:
-            raise HTTPException(status_code=400, detail="Invalid or expired 6-digit code.")
-
-        # 2. Update user's password in local DB / Supabase repository
-        database.update_user_password_repo(
-            db,
-            email=email_clean,
-            new_password=req.new_password
+    if not updated_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User account associated with this email address was not found."
         )
 
-        return {"message": "Password reset successfully. You can now log in with your new password."}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e) or "Failed to reset password.")
+    return {"message": "Password reset successfully. You can now log in with your new password."}
 
 # --- DASHBOARD & BUDGET ROUTES ---
 
